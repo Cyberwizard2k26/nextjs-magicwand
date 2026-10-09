@@ -2,16 +2,25 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
-import { Monitor, Sparkles, ArrowRight, Terminal, Cast, Play, Search } from "lucide-react";
+import { Monitor, Sparkles, ArrowRight, Terminal, Cast, Play, Search, Download, Ticket, Radar } from "lucide-react";
 import { Dialog as RDialog } from "radix-ui";
-import { NAV } from "./nav";
+import { allowed, visibleNav, type ShellUser } from "./sidebar";
+import { Kbd } from "@/components/ui/misc";
 import { api } from "@/lib/client/api";
 import { StatusDot } from "@/components/ui/misc";
 import { platformLabel } from "@/lib/client/format";
 
+const ACTIONS = [
+  { label: "Run a script on devices", href: "/jobs/new", icon: Play, permission: "scripts.run" },
+  { label: "Create an enrollment token / download installer", href: "/deploy", icon: Download, permission: "devices.enroll" },
+  { label: "New ticket", href: "/tickets/new", icon: Ticket, permission: "tickets.manage" },
+  { label: "Scan network", href: "/network?scan=1", icon: Radar, permission: "network.manage" },
+];
+
 interface DeviceHit { id: string; name: string; hostname: string | null; platform: string; status: string; loggedInUser: string | null }
 
-export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function CommandPalette({ open, onOpenChange, user }: { open: boolean; onOpenChange: (o: boolean) => void; user: ShellUser }) {
+  const navItems = React.useMemo(() => visibleNav(user).flatMap((g) => g.items), [user]);
   const router = useRouter();
   const [query, setQuery] = React.useState("");
   const [devices, setDevices] = React.useState<DeviceHit[]>([]);
@@ -46,10 +55,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             <div className="flex items-center gap-2 border-b border-border px-4">
               <Search className="h-4 w-4 text-fg-subtle" />
               <Command.Input value={query} onValueChange={setQuery} placeholder="Search devices, jump to a page, or ask the copilot…" className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-fg-subtle" />
-              {loading && <span className="text-xs text-fg-subtle">Searching…</span>}
+              {loading ? <span className="text-xs text-fg-subtle">Searching…</span> : <Kbd>esc</Kbd>}
             </div>
             <Command.List className="max-h-[60vh] overflow-auto p-2">
-              <Command.Empty className="px-3 py-8 text-center text-sm text-fg-subtle">No results.</Command.Empty>
+              <Command.Empty className="px-3 py-10 text-center text-sm text-fg-subtle">No matches for “{query}”.</Command.Empty>
               {devices.length > 0 && (
                 <Command.Group heading={<Heading>Devices</Heading>}>
                   {devices.map((d) => (
@@ -77,7 +86,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </Command.Group>
               )}
               <Command.Group heading={<Heading>Go to</Heading>}>
-                {NAV.flatMap((g) => g.items)
+                {navItems
                   .filter((i) => !query || i.label.toLowerCase().includes(query.toLowerCase()))
                   .slice(0, query ? 6 : 8)
                   .map((i) => (
@@ -89,21 +98,22 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   ))}
               </Command.Group>
               <Command.Group heading={<Heading>Actions</Heading>}>
-                {[
-                  { label: "Run a script on devices", href: "/jobs/new" },
-                  { label: "Create an enrollment token / download installer", href: "/deploy" },
-                  { label: "New ticket", href: "/tickets/new" },
-                  { label: "Scan network", href: "/network?scan=1" },
-                ]
+                {ACTIONS
+                  .filter((a) => allowed(user.permissions, a.permission, false, user.isSuperAdmin))
                   .filter((a) => !query || a.label.toLowerCase().includes(query.toLowerCase()))
                   .map((a) => (
                     <Item key={a.href} onSelect={() => go(a.href)}>
-                      <Play className="h-4 w-4 text-fg-subtle" />
+                      <a.icon className="h-4 w-4 text-fg-subtle" />
                       <span className="flex-1">{a.label}</span>
                     </Item>
                   ))}
               </Command.Group>
             </Command.List>
+            <div className="flex items-center gap-4 border-t border-border bg-surface-2/60 px-4 py-2 text-[11px] text-fg-subtle">
+              <span className="flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> navigate</span>
+              <span className="flex items-center gap-1"><Kbd>↵</Kbd> open</span>
+              <span className="ml-auto hidden sm:inline">Type 2+ characters to search devices</span>
+            </div>
           </Command>
         </RDialog.Content>
       </RDialog.Portal>

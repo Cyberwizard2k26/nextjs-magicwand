@@ -1,42 +1,87 @@
 "use client";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, LifeBuoy, ShieldCheck, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
+import { AuthHeader, FormError, OtpInput } from "@/components/auth/auth-ui";
 import { apiFetch, ApiClientError } from "@/lib/client/api";
+import { safeNext } from "@/lib/client/safe-next";
 
 export default function MfaPage() {
+  return (
+    <React.Suspense>
+      <MfaForm />
+    </React.Suspense>
+  );
+}
+
+function MfaForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const next = safeNext(params.get("next"));
+  const [mode, setMode] = React.useState<"totp" | "recovery">("totp");
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+
+  async function verify(value: string) {
+    if (loading) return;
     setLoading(true);
     setError(null);
     try {
-      await apiFetch("/api/auth/mfa", { method: "POST", json: { code } });
+      await apiFetch("/api/auth/mfa", { method: "POST", json: { code: value.trim() } });
       router.push(next);
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Verification failed");
-    } finally {
+      if (mode === "totp") setCode("");
       setLoading(false);
     }
   }
+
+  // The half-authenticated session must be dropped first, otherwise /login bounces straight back here.
+  async function backToLogin() {
+    await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    router.push("/login");
+    router.refresh();
+  }
+
+  const switchMode = () => {
+    setMode((m) => (m === "totp" ? "recovery" : "totp"));
+    setCode("");
+    setError(null);
+  };
+
   return (
-    <div className="card p-6 md:p-8">
-      <h1 className="text-xl font-semibold tracking-tight">Two-factor verification</h1>
-      <p className="mt-1 text-sm text-fg-muted">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        <Field label="Code">
-          <Input inputMode="numeric" autoComplete="one-time-code" autoFocus required value={code} onChange={(e) => setCode(e.target.value)} className="mono text-center text-lg tracking-[0.4em]" placeholder="000000" />
-        </Field>
-        {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">{error}</div>}
-        <Button type="submit" className="w-full" size="lg" loading={loading}>Verify</Button>
+    <>
+      <AuthHeader
+        icon={<ShieldCheck />}
+        title="Two-factor verification"
+        description={mode === "totp" ? "Enter the 6-digit code from your authenticator app." : "Enter one of the recovery codes you saved when you enabled two-factor authentication."}
+      />
+      <form onSubmit={(e) => { e.preventDefault(); verify(code); }} className="space-y-5">
+        {mode === "totp" ? (
+          <OtpInput value={code} onChange={(v) => { setCode(v); if (error) setError(null); }} onComplete={verify} disabled={loading} invalid={!!error} />
+        ) : (
+          <Field label="Recovery code">
+            <Input autoFocus required autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} className="mono h-10 tracking-widest" placeholder="xxxxx-xxxxx" />
+          </Field>
+        )}
+        <FormError>{error}</FormError>
+        <Button type="submit" className="w-full" size="lg" loading={loading} disabled={mode === "totp" ? code.length < 6 : !code.trim()}>
+          Verify and continue
+        </Button>
       </form>
-    </div>
+
+      <div className="mt-6 flex flex-col items-center gap-3 text-sm">
+        <button type="button" onClick={switchMode} className="inline-flex items-center gap-1.5 text-fg-muted transition-colors hover:text-fg focus-ring rounded-md px-1">
+          {mode === "totp" ? <><LifeBuoy className="h-4 w-4" /> Use a recovery code instead</> : <><Smartphone className="h-4 w-4" /> Use your authenticator app</>}
+        </button>
+        <button type="button" onClick={backToLogin} className="inline-flex items-center gap-1.5 rounded-md px-1 text-xs text-fg-subtle transition-colors hover:text-fg focus-ring">
+          <ArrowLeft className="h-3.5 w-3.5" /> Sign in as someone else
+        </button>
+      </div>
+    </>
   );
 }

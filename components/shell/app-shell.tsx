@@ -1,17 +1,21 @@
 "use client";
 import * as React from "react";
 import { Dialog as RDialog } from "radix-ui";
-import { Sidebar, type ShellUser } from "./sidebar";
+import { X } from "lucide-react";
+import { Sidebar, NavLinks, type ShellUser, type ShellCounts } from "./sidebar";
 import { Topbar, type ShellOrg } from "./topbar";
 import { CommandPalette } from "./command-palette";
+import { BrandMark } from "./brand-mark";
 import { RealtimeProvider, useRealtime } from "./realtime-provider";
 import { setActiveOrg } from "@/lib/client/api";
-import { NAV } from "./nav";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/util/cn";
 import { toast } from "sonner";
 import useSWR from "swr";
+
+function isTyping(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null;
+  return !!t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
+}
 
 export function AppShell({ user, orgs, activeOrgId, productName, children }: { user: ShellUser; orgs: ShellOrg[]; activeOrgId: string | null; productName?: string; children: React.ReactNode }) {
   const [palette, setPalette] = React.useState(false);
@@ -23,19 +27,22 @@ export function AppShell({ user, orgs, activeOrgId, productName, children }: { u
   React.useEffect(() => {
     setActiveOrg(activeOrgId);
   }, [activeOrgId]);
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  const toggle = () => {
+  const toggle = React.useCallback(() => {
     setCollapsed((c) => {
       try { localStorage.setItem("mw.sidebar", !c ? "collapsed" : "expanded"); } catch { /* ignore */ }
       return !c;
     });
-  };
+  }, []);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); return; }
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "/") { e.preventDefault(); setPalette(true); }
+      else if (e.key === "[") toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggle]);
   return (
     <RealtimeProvider orgId={activeOrgId}>
       <ShellInner user={user} orgs={orgs} activeOrgId={activeOrgId} productName={productName} collapsed={collapsed} toggle={toggle} palette={palette} setPalette={setPalette} mobileNav={mobileNav} setMobileNav={setMobileNav}>
@@ -47,7 +54,8 @@ export function AppShell({ user, orgs, activeOrgId, productName, children }: { u
 
 function ShellInner({ user, orgs, activeOrgId, productName, collapsed, toggle, palette, setPalette, mobileNav, setMobileNav, children }: { user: ShellUser; orgs: ShellOrg[]; activeOrgId: string | null; productName?: string; collapsed: boolean; toggle: () => void; palette: boolean; setPalette: (b: boolean) => void; mobileNav: boolean; setMobileNav: (b: boolean) => void; children: React.ReactNode }) {
   const pathname = usePathname();
-  const { data: counts, mutate } = useSWR<{ alerts: number; tickets: number; pending: number }>(activeOrgId ? "me/counts" : null, { refreshInterval: 60000 });
+  const { data: counts, mutate } = useSWR<ShellCounts>(activeOrgId ? "me/counts" : null, { refreshInterval: 60000 });
+  React.useEffect(() => { setMobileNav(false); }, [pathname, setMobileNav]);
   useRealtime(["alert.*", "ticket.*", "device.enrolled"], (ev) => {
     mutate();
     if (ev.name === "alert.opened") {
@@ -61,28 +69,28 @@ function ShellInner({ user, orgs, activeOrgId, productName, collapsed, toggle, p
   });
   return (
     <div className="min-h-screen">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:text-accent-fg">
+        Skip to content
+      </a>
       <Sidebar user={user} counts={counts} productName={productName} collapsed={collapsed} onToggle={toggle} />
-      <div className="transition-[padding] duration-200 md:pl-[var(--sidebar-width)]" style={{ paddingLeft: undefined }} data-collapsed={collapsed}>
-        <style>{collapsed ? `@media (min-width:768px){[data-collapsed="true"]{padding-left:var(--sidebar-collapsed)!important}}` : ""}</style>
+      <div className="shell-content transition-[padding] duration-200" data-collapsed={collapsed}>
         <Topbar user={user} orgs={orgs} activeOrgId={activeOrgId} onOpenPalette={() => setPalette(true)} onOpenMobileNav={() => setMobileNav(true)} />
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-6 md:px-6 lg:px-8 animate-in">{children}</main>
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-4 py-6 outline-none animate-in md:px-6 md:py-8 lg:px-8">{children}</main>
       </div>
-      <CommandPalette open={palette} onOpenChange={setPalette} />
+      <CommandPalette open={palette} onOpenChange={setPalette} user={user} />
       <RDialog.Root open={mobileNav} onOpenChange={setMobileNav}>
         <RDialog.Portal>
-          <RDialog.Overlay className="fixed inset-0 z-40 bg-black/60 md:hidden" />
-          <RDialog.Content className="fixed inset-y-0 left-0 z-50 w-72 overflow-y-auto border-r border-border bg-surface p-3 md:hidden">
-            <RDialog.Title className="px-2 py-2 text-sm font-semibold">{productName || "MagicWand"}</RDialog.Title>
-            {NAV.map((g, i) => (
-              <div key={i} className="mb-3">
-                {g.label && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-fg-subtle">{g.label}</div>}
-                {g.items.filter((it) => !it.superAdmin || user.isSuperAdmin).map((it) => (
-                  <Link key={it.href} href={it.href} onClick={() => setMobileNav(false)} className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname === it.href ? "bg-accent-soft text-fg" : "text-fg-muted hover:bg-surface-hover")}>
-                    <it.icon className="h-4 w-4" /> {it.label}
-                  </Link>
-                ))}
-              </div>
-            ))}
+          <RDialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden" />
+          <RDialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(18rem,85vw)] flex-col border-r border-border bg-bg-elevated shadow-2xl animate-in focus:outline-none md:hidden">
+            <div className="flex h-[var(--topbar-height)] shrink-0 items-center justify-between border-b border-border px-4">
+              <RDialog.Title asChild><div><BrandMark compact label={productName} /></div></RDialog.Title>
+              <RDialog.Close className="rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg focus-ring" aria-label="Close menu">
+                <X className="h-4 w-4" />
+              </RDialog.Close>
+            </div>
+            <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Primary">
+              <NavLinks user={user} counts={counts} onNavigate={() => setMobileNav(false)} />
+            </nav>
           </RDialog.Content>
         </RDialog.Portal>
       </RDialog.Root>

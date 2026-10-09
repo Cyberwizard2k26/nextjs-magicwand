@@ -272,3 +272,45 @@ body::before {
 .prose-mw table { width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: 0.9em; }
 .prose-mw th, .prose-mw td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 .prose-mw blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--fg-muted); margin: 0.8em 0; }
+
+/* Auth brand panel: faint engineering grid that fades out toward the edges */
+.auth-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, #000 30%, transparent 75%);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+/* Staggered entrance for dashboard tiles */
+@utility stagger-in {
+  & > * {
+    animation: fade-up 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  & > *:nth-child(2) { animation-delay: 40ms; }
+  & > *:nth-child(3) { animation-delay: 80ms; }
+  & > *:nth-child(4) { animation-delay: 120ms; }
+  & > *:nth-child(5) { animation-delay: 160ms; }
+  & > *:nth-child(6) { animation-delay: 200ms; }
+}
+
+/* Desktop content offset follows the sidebar width */
+@media (min-width: 768px) {
+  .shell-content { padding-left: var(--sidebar-width); }
+  .shell-content[data-collapsed="true"] { padding-left: var(--sidebar-collapsed); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

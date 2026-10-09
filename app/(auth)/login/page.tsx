@@ -1,44 +1,55 @@
 "use client";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fingerprint, KeyRound, Mail } from "lucide-react";
+import { ArrowRight, Fingerprint, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
+import { AuthHeader, Divider, FormError, PasswordInput } from "@/components/auth/auth-ui";
 import { apiFetch, ApiClientError } from "@/lib/client/api";
-import Link from "next/link";
+import { safeNext } from "@/lib/client/safe-next";
 import { startAuthentication } from "@simplewebauthn/browser";
 
 export default function LoginPage() {
+  return (
+    <React.Suspense>
+      <LoginForm />
+    </React.Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const next = safeNext(params.get("next"));
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState<"password" | "passkey" | null>(null);
   const [sso, setSso] = React.useState<{ id: string; name: string }[]>([]);
 
   React.useEffect(() => {
+    try { const last = localStorage.getItem("mw.lastEmail"); if (last) setEmail(last); } catch { /* ignore */ }
     apiFetch<{ providers: { id: string; name: string }[] }>("/api/auth/providers").then((r) => setSso(r.providers)).catch(() => {});
   }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setLoading("password");
     setError(null);
     try {
       const r = await apiFetch<{ mfaRequired: boolean }>("/api/auth/login", { method: "POST", json: { email, password } });
+      try { localStorage.setItem("mw.lastEmail", email); } catch { /* ignore */ }
       router.push(r.mfaRequired ? `/login/mfa?next=${encodeURIComponent(next)}` : next);
       router.refresh();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Sign-in failed");
-    } finally {
-      setLoading(false);
+      setError(err instanceof ApiClientError ? err.message : "Sign-in failed. Check your connection and try again.");
+      setLoading(null);
     }
   }
 
   async function passkey() {
     setError(null);
+    setLoading("passkey");
     try {
       const opts = await apiFetch<Record<string, unknown>>("/api/auth/webauthn/login/options", { method: "POST", json: { email: email || undefined } });
       const cred = await startAuthentication({ optionsJSON: opts as never });
@@ -46,34 +57,44 @@ export default function LoginPage() {
       router.push(next);
       router.refresh();
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Passkey sign-in failed");
+      const cancelled = err instanceof Error && err.name === "NotAllowedError";
+      if (!cancelled) setError(err instanceof ApiClientError ? err.message : "Passkey sign-in failed");
+      setLoading(null);
     }
   }
 
   return (
-    <div className="card p-6 md:p-8">
-      <h1 className="text-xl font-semibold tracking-tight">Welcome back</h1>
-      <p className="mt-1 text-sm text-fg-muted">Sign in to your console.</p>
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        <Field label="Email">
-          <Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} leftIcon={<Mail />} placeholder="you@company.com" autoFocus />
+    <>
+      <AuthHeader title="Welcome back" description="Sign in to your MagicWand console." />
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Work email">
+          <Input type="email" autoComplete="username email" required value={email} onChange={(e) => setEmail(e.target.value)} leftIcon={<Mail />} placeholder="you@company.com" autoFocus={!email} className="h-10" />
         </Field>
         <Field label="Password">
-          <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} leftIcon={<KeyRound />} placeholder="••••••••" />
+          <PasswordInput autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" autoFocus={!!email} />
         </Field>
-        {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">{error}</div>}
-        <Button type="submit" className="w-full" size="lg" loading={loading}>Sign in</Button>
+        <FormError>{error}</FormError>
+        <Button type="submit" className="w-full" size="lg" loading={loading === "password"} disabled={!!loading} rightIcon={<ArrowRight className="h-4 w-4" />}>
+          Sign in
+        </Button>
       </form>
-      <div className="my-5 flex items-center gap-3 text-xs text-fg-subtle"><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div>
-      <div className="space-y-2">
-        <Button type="button" variant="secondary" className="w-full" onClick={passkey} leftIcon={<Fingerprint className="h-4 w-4" />}>Sign in with a passkey</Button>
+
+      <Divider>or continue with</Divider>
+
+      <div className="space-y-2.5">
+        <Button type="button" variant="secondary" size="lg" className="w-full text-sm" onClick={passkey} loading={loading === "passkey"} disabled={!!loading} leftIcon={<Fingerprint className="h-4 w-4" />}>
+          Passkey
+        </Button>
         {sso.map((p) => (
-          <a key={p.id} href={`/api/auth/sso/${p.id}/start?next=${encodeURIComponent(next)}`} className="flex h-9 w-full items-center justify-center rounded-lg border border-border-strong text-sm hover:bg-surface-hover">Continue with {p.name}</a>
+          <a key={p.id} href={`/api/auth/sso/${p.id}/start?next=${encodeURIComponent(next)}`} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border-strong text-sm font-medium transition-colors hover:bg-surface-hover focus-ring">
+            Continue with {p.name}
+          </a>
         ))}
       </div>
-      <p className="mt-6 text-center text-xs text-fg-subtle">
-        <Link href="/reset" className="hover:text-fg">Forgot your password?</Link>
+
+      <p className="mt-8 text-center text-xs leading-relaxed text-fg-subtle">
+        Forgot your password or lost your authenticator? Ask an organization administrator to reset your access.
       </p>
-    </div>
+    </>
   );
 }

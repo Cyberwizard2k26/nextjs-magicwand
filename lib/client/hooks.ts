@@ -19,9 +19,10 @@ export function usePaginated<T>(path: string, params: Record<string, string | nu
   const [q, setQ] = React.useState("");
   const [sort, setSort] = React.useState<{ field: string; dir: "asc" | "desc" } | null>(null);
   const dq = useDebounce(q, 250);
-  const key = React.useMemo(() => [path, { ...params, page, pageSize, q: dq || undefined, sort: sort?.field, dir: sort?.dir }] as const, [path, JSON.stringify(params), page, pageSize, dq, sort?.field, sort?.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paramsKey = JSON.stringify(params);
+  const key = React.useMemo(() => [path, { ...(JSON.parse(paramsKey) as typeof params), page, pageSize, q: dq || undefined, sort: sort?.field, dir: sort?.dir }] as const, [path, paramsKey, page, pageSize, dq, sort?.field, sort?.dir]);
   const swr = useSWR<Paginated<T>>(key as unknown as [string, Record<string, string>], ([p, query]: [string, Record<string, string>]) => api.get<Paginated<T>>(p, query), { keepPreviousData: true, refreshInterval: opts.refreshInterval });
-  React.useEffect(() => { setPage(1); }, [dq, JSON.stringify(params)]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setPage(1); }, [dq, paramsKey]);
   return { ...swr, page, setPage, pageSize, setPageSize, q, setQ, sort, setSort, items: swr.data?.items ?? [], total: swr.data?.total ?? 0, pages: swr.data?.pages ?? 1 };
 }
 
