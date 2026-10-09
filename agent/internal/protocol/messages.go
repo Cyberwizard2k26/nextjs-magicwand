@@ -292,5 +292,7 @@ const (
 	DesktopAck      byte = 18
 )
 
-// Capabilities announced by this agent build.
-var Capabilities = []string{"terminal", "files", "processes", "services", "scripts", "patching", "software", "power", "notifications", "chat", "security_posture", "local_users", "screenshot", "wol", "compliance", "desktop", "clipboard", "eventlog", "registry", "tunnels", "probe", "snmp", "certificates", "firewall", "scheduled_tasks", "printers"}
+// Capabilities announced by this agent build. Only list what registerCommands/collectors actually implement:
+// the console gates remote tools on these, so advertising "desktop" or "terminal" before they exist would
+// show technicians buttons that cannot work.
+var Capabilities = []string{"scripts", "files", "processes", "power", "wol", "services", "local_users", "security_posture"}

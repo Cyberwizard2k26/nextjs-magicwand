@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
 import useSWR from "swr";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type Paginated } from "./api";
 
 export function useDebounce<T>(value: T, ms = 250): T {
@@ -39,4 +40,29 @@ export function useLocalStorage<T>(key: string, initial: T) {
     });
   }, [key]);
   return [v, set] as const;
+}
+
+/** Filter state mirrored into the URL query string so views are shareable and survive refresh. */
+export function useUrlState<T extends Record<string, string | undefined>>(defaults: T) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const state = React.useMemo(() => {
+    const out = { ...defaults } as T;
+    for (const k of Object.keys(defaults)) {
+      const v = params.get(k);
+      if (v !== null) (out as Record<string, string | undefined>)[k] = v;
+    }
+    return out;
+  }, [params, defaults]);
+  const set = React.useCallback((patch: Partial<T>) => {
+    const sp = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined || v === "" || v === defaults[k]) sp.delete(k);
+      else sp.set(k, String(v));
+    }
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [params, pathname, router, defaults]);
+  return [state, set] as const;
 }

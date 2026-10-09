@@ -32,6 +32,10 @@ This document is the contract every module follows. Read it before adding code.
 - **Background loops** run only on the leader node: `if (!(await isLeader())) return;` (`lib/boot.ts`). Use `setInterval(...).unref()`.
 - **Logging**: `createLogger("scope")`.
 - **Email**: `sendMail()` in `lib/services/email.ts` (no-op with a log line when SMTP is unconfigured). **Files**: `lib/services/storage.ts`. **Settings**: `lib/services/settings.ts`. **In-app notifications**: `lib/services/inbox.ts`.
+- **Interactive device tools ("Backstage")** go through `POST /api/v1/devices/[id]/rpc` and the allowlist in `lib/services/device-rpc.ts`: every command declares the permission it needs, a zod schema for its arguments and whether it is audited. Add a row there before exposing a new agent command to the UI; never call `agentRegistry.command()` from a route with a free-form `cmd`.
+- **Single-device actions** (`POST /api/v1/devices/[id]/actions`) and the console both create jobs (`lib/services/job-create.ts`), so the device timeline, the jobs page and the audit log agree on what ran, who ran it and what it printed. `createJobFromRequest` enforces per-job-type permissions, hydrates script references and implements canary rollouts (first wave now, second wave `awaiting_approval`, auto-promoted by the jobs module when the canary finishes with zero failures).
+- **Device access**: use `requireDevice(principal, orgId, id)` and `siteScope()` from `lib/services/device-access.ts` in every `/devices/[id]/*` route and page so site-scoped memberships cannot reach other sites' devices by id.
+- Services that are loaded at boot by a module (`lib/modules/*`) must not import `lib/api/route` (it pulls in `next/server` before Next.js is initialised); return `null`/throw plain errors and let the route translate them.
 - Frozen files (change only through a foundation change request): schema + migrations, `package.json`, `lib/protocol/agent.ts`, `lib/rbac/permissions.ts`, `lib/services/registry.ts`, `components/shell/nav.ts`, `server/**`, `lib/realtime/**`, `lib/api/route.ts`, `lib/auth/session.ts`, `lib/boot.ts`, `app/globals.css`, `components/ui/**`. Store module-specific extra data in the existing `jsonb` columns (`data`, `facts`, `settings`, `config`, `customFields`, `payload`).
 
 ## UI conventions
@@ -42,6 +46,8 @@ This document is the contract every module follows. Read it before adding code.
 - Pages are under `app/(app)/...`; server components may call services directly after `await requireUser()` (`lib/auth/server.ts`) and must check permissions with `can(principal, "x.y")`.
 - Keep pages responsive (works at 390px), keyboard accessible, with loading skeletons and empty states. Every list has search, filters and bulk actions where it makes sense.
 - Charts: `recharts` with the palette in `lib/client/chart-palette.ts` (see dataviz skill guidance): neutral grid, accent series, status colours only for status.
+- Ad-hoc commands typed by technicians pass through `assessCommand()` (`lib/client/command-risk.ts`) and show a `RiskNotice`; destructive commands need an explicit second confirmation. Keep the patterns there in sync with anything new the agent can execute.
+- The agent announces only capabilities it implements (`agent/internal/protocol/messages.go`); the device header gates remote tools on `device.capabilities`, so adding a feature to the agent means adding its capability string there too.
 
 ## Agent conventions (Go)
 

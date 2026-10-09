@@ -37,6 +37,8 @@ export interface CreateJobInput {
   expiresAt?: Date | null;
   createdBy?: string | null;
   createdByName?: string | null;
+  /** Site-scoped memberships: only devices in these sites may be targeted (others are dropped silently). */
+  scopeSiteIds?: string[];
 }
 
 /** Translate a job (type + payload) into the agent command envelope for one device. */
@@ -102,7 +104,12 @@ export function commandForJob(job: Job, deviceId: string): { cmd: CommandType; a
 
 export async function createJob(input: CreateJobInput): Promise<{ job: Job; runs: JobRun[] }> {
   const db = await getDb();
-  const deviceIds = await resolveTargets(input.orgId, input.targetType, input.targetIds ?? [], input.targetFilter ?? null);
+  let deviceIds = await resolveTargets(input.orgId, input.targetType, input.targetIds ?? [], input.targetFilter ?? null);
+  if (input.scopeSiteIds?.length && deviceIds.length) {
+    const allowed = await db.select({ id: schema.devices.id }).from(schema.devices).where(and(inArray(schema.devices.id, deviceIds), inArray(schema.devices.siteId, input.scopeSiteIds)));
+    const ok = new Set(allowed.map((r) => r.id));
+    deviceIds = deviceIds.filter((id) => ok.has(id));
+  }
   const status: Job["status"] = input.requiresApproval ? "awaiting_approval" : input.scheduledAt && input.scheduledAt > new Date() ? "queued" : "queued";
   const [job] = await db
     .insert(schema.jobs)

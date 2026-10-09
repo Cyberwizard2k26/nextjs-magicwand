@@ -3,19 +3,20 @@ import { eq } from "drizzle-orm";
 import { api, errors } from "@/lib/api/route";
 import { getDb, schema } from "@/lib/db";
 import { getDeviceInOrg } from "@/lib/services/devices";
+import { requireDevice } from "@/lib/services/device-access";
 import { agentRegistry } from "@/lib/realtime/agent-registry";
 
 export const dynamic = "force-dynamic";
 
-export const GET = api({ permission: "devices.view" }, async ({ orgId, params }) => {
-  const device = await getDeviceInOrg(params.id, orgId);
-  if (!device) throw errors.notFound("Device not found");
+export const GET = api({ permission: "devices.view" }, async ({ orgId, params, principal }) => {
+  const device = await requireDevice(principal, orgId, params.id);
   const db = await getDb();
   const [hardware] = await db.select().from(schema.deviceHardware).where(eq(schema.deviceHardware.deviceId, device.id));
   const [security] = await db.select().from(schema.deviceSecurity).where(eq(schema.deviceSecurity.deviceId, device.id));
   const site = device.siteId ? (await db.select().from(schema.sites).where(eq(schema.sites.id, device.siteId)))[0] : null;
   const group = device.groupId ? (await db.select().from(schema.deviceGroups).where(eq(schema.deviceGroups.id, device.groupId)))[0] : null;
-  return { device: { ...device, connected: agentRegistry.isOnline(device.id) }, hardware: hardware ?? null, security: security ?? null, site, group };
+  const conn = agentRegistry.get(device.id);
+  return { device: { ...device, connected: agentRegistry.isOnline(device.id), capabilities: conn?.hello.capabilities ?? [] }, hardware: hardware ?? null, security: security ?? null, site, group };
 });
 
 const Patch = z.object({
