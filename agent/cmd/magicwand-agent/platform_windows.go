@@ -84,3 +84,6 @@ func pendingReboot() (bool, bool) {
 }
 
 func registerPlatformCommands(a *Agent, d *commands.Dispatcher) {}
+
+// platformCapabilities lists features that only exist on this OS.
+func platformCapabilities() []string { return []string{"registry"} }

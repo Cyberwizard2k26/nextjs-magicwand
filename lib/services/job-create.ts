@@ -76,6 +76,11 @@ const DEFAULT_NAMES: Partial<Record<JobType, (p: Record<string, unknown>) => str
   clear_cache: () => "Clear temporary files",
   message_user: (p) => `Message: ${String(p.title ?? "").slice(0, 60)}`,
   agent_update: () => "Update agent",
+  patch_scan: () => "Patch scan",
+  patch_install: (p) => (p.all ? "Install all updates" : `Install ${(p.externalIds as string[] | undefined)?.length ?? 0} update(s)`),
+  software_install: (p) => `Install ${String(p.package ?? p.url ?? "software")}`,
+  software_uninstall: (p) => `Uninstall ${String(p.name ?? p.package ?? "software")}`,
+  wake_on_lan: () => "Wake on LAN",
 };
 
 export function defaultJobName(type: JobType, payload: Record<string, unknown>): string {

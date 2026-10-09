@@ -243,6 +243,7 @@ export const CommandTypes = [
   "security_scan",
   "compliance_check",
   "local_user_action",
+  "unlock_session",
   "rotate_local_admin",
   "screenshot",
   "clipboard_get",

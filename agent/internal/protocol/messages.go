@@ -295,4 +295,4 @@ const (
 // Capabilities announced by this agent build. Only list what registerCommands/collectors actually implement:
 // the console gates remote tools on these, so advertising "desktop" or "terminal" before they exist would
 // show technicians buttons that cannot work.
-var Capabilities = []string{"scripts", "files", "processes", "power", "wol", "services", "local_users", "security_posture"}
+var Capabilities = []string{"scripts", "terminal", "files", "processes", "power", "wol", "services", "local_users", "security_posture", "eventlog", "scheduled_tasks", "patching", "software", "screenshot", "notifications"}

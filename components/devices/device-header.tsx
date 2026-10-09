@@ -3,29 +3,35 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Activity, Cast, ChevronDown, ChevronRight, FolderOpen, Gauge, History, KeyRound, ListTree, Network, Package, Pencil, Play, Radar, RotateCw, Settings2, ShieldCheck, SquareTerminal, UserCheck, Users } from "lucide-react";
+import { Activity, Braces, CalendarClock, Camera, Cast, ChevronDown, ChevronRight, Download, FolderOpen, Gauge, History, KeyRound, ListTree, Network, Package, Pencil, Play, Radar, RotateCw, ScrollText, Settings2, ShieldCheck, SquareTerminal, Terminal, Unlock, UserCheck, Users, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
-import { Menu, MenuItem, MenuSeparator, Tooltip } from "@/components/ui/menu";
+import { Menu, MenuItem, MenuLabel, MenuSeparator, Tooltip } from "@/components/ui/menu";
 import { api, ApiClientError } from "@/lib/client/api";
 import { formatDateTime, platformLabel, relativeTime } from "@/lib/client/format";
 import { cn } from "@/lib/util/cn";
 import { useDevice } from "./device-context";
 import { DeviceStatusBadge, DeviceTypeIcon, HealthScore, PlatformChip, TagList } from "./device-bits";
 import { QuickJobDialog, QUICK_ACTIONS, type QuickAction } from "@/components/jobs/quick-job-dialog";
+import { ScreenshotDialog } from "@/components/remote/screenshot-dialog";
 
 const TABS = [
   { href: "", label: "Overview", icon: Gauge, permission: "devices.view" },
   { href: "/software", label: "Software", icon: Package, permission: "software.view" },
+  { href: "/patches", label: "Patches", icon: Download, permission: "patches.view" },
   { href: "/services", label: "Services", icon: Settings2, permission: "devices.view" },
   { href: "/users", label: "Users", icon: Users, permission: "devices.view" },
   { href: "/security", label: "Security", icon: ShieldCheck, permission: "security.view" },
+  { href: "/logs", label: "Logs", icon: ScrollText, permission: "remote.tools" },
+  { href: "/tasks", label: "Tasks", icon: CalendarClock, permission: "remote.tools" },
+  { href: "/registry", label: "Registry", icon: Braces, permission: "remote.tools", platform: "windows" },
   { href: "/timeline", label: "Timeline", icon: History, permission: "devices.view" },
   { href: "/jobs", label: "Jobs", icon: Play, permission: "jobs.view" },
 ];
 const TOOLS = [
+  { href: "/terminal", label: "Terminal", icon: Terminal, permission: "remote.terminal", capability: "terminal" },
   { href: "/console", label: "Console", icon: SquareTerminal, permission: "scripts.run", capability: "scripts" },
   { href: "/files", label: "Files", icon: FolderOpen, permission: "remote.files", capability: "files" },
   { href: "/processes", label: "Processes", icon: ListTree, permission: "remote.tools", capability: "processes" },
@@ -42,12 +48,21 @@ export function DeviceHeader() {
   const rel = pathname.startsWith(base) ? pathname.slice(base.length) : "";
   const [quick, setQuick] = React.useState<QuickAction | null>(null);
   const [edit, setEdit] = React.useState(false);
+  const [shot, setShot] = React.useState(false);
   const [approving, setApproving] = React.useState(false);
   const online = d.status === "online";
+  const caps = d.capabilities ?? [];
+  const hasCap = (c: string) => caps.includes(c);
 
   async function approve() {
     setApproving(true);
     try { await api.post(`devices/${d.id}/approve`); toast.success(`${d.name} approved`); mutate(); } catch (err) { toast.error(err instanceof ApiClientError ? err.message : "Approval failed"); } finally { setApproving(false); }
+  }
+  async function rpc(cmd: string, args: Record<string, unknown>, ok: string) {
+    try { const r = await api.post<{ data?: Record<string, unknown> }>(`devices/${d.id}/rpc`, { cmd, args }); toast.success(ok, { description: r.data?.output ? String(r.data.output).slice(0, 200) : undefined }); } catch (err) { toast.error(err instanceof ApiClientError ? err.message : "Failed"); }
+  }
+  async function wake() {
+    try { const r = await api.post<{ via: { name: string }; job: { id: string } }>(`devices/${d.id}/actions`, { action: "wake_on_lan" }); toast.success(`Wake packet sent via ${r.via.name}`, { action: { label: "Job", onClick: () => router.push(`/jobs/${r.job.id}`) } }); } catch (err) { toast.error(err instanceof ApiClientError ? err.message : "Failed"); }
   }
 
   return (
@@ -82,21 +97,27 @@ export function DeviceHeader() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {d.status === "pending" && can("devices.approve") && <Button variant="success" leftIcon={<UserCheck className="h-4 w-4" />} loading={approving} onClick={approve}>Approve device</Button>}
-          {can("scripts.run") && <Button variant="secondary" leftIcon={<SquareTerminal className="h-4 w-4" />} onClick={() => router.push(`${base}/console`)} disabled={!online}>Console</Button>}
+          {!online && can("devices.power") && <Button variant="secondary" leftIcon={<Zap className="h-4 w-4" />} onClick={wake}>Wake</Button>}
+          {can("remote.terminal") && <Button variant="secondary" leftIcon={<Terminal className="h-4 w-4" />} onClick={() => router.push(`${base}/terminal`)} disabled={!online || !hasCap("terminal")}>Terminal</Button>}
           {can("devices.manage") && <Button variant="secondary" size="icon" aria-label="Edit device" onClick={() => setEdit(true)}><Pencil className="h-4 w-4" /></Button>}
           <Menu trigger={<Button rightIcon={<ChevronDown className="h-4 w-4" />}>Actions</Button>}>
             {QUICK_ACTIONS.filter((a) => can(a.permission)).map((a) => <MenuItem key={a.id} icon={a.icon} danger={a.tone === "danger"} onSelect={() => setQuick(a.id)}>{a.label}</MenuItem>)}
             <MenuSeparator />
+            <MenuLabel>Live tools</MenuLabel>
+            {can("remote.desktop") && <MenuItem icon={<Camera />} onSelect={() => setShot(true)} disabled={!online || !hasCap("screenshot")}>Take screenshot</MenuItem>}
+            {can("devices.power") && hasCap("session_unlock") && <MenuItem icon={<Unlock />} onSelect={() => rpc("unlock_session", {}, "Desktop session unlocked")} disabled={!online}>Unlock desktop session</MenuItem>}
+            {can("security.manage") && <MenuItem icon={<KeyRound />} onSelect={() => router.push(`${base}/users`)}>Unlock or reset an account…</MenuItem>}
+            {can("devices.power") && <MenuItem icon={<Zap />} onSelect={wake} disabled={online}>Wake on LAN</MenuItem>}
+            <MenuSeparator />
             {can("scripts.run") && <MenuItem icon={<Play />} onSelect={() => router.push(`/jobs/new?device=${d.id}`)}>Run a script…</MenuItem>}
-            {can("devices.manage") && <MenuItem icon={<RotateCw />} onSelect={async () => { try { await api.post(`devices/${d.id}/rpc`, { cmd: "agent_restart", args: {} }); toast.success("Agent restarting"); } catch (err) { toast.error(err instanceof ApiClientError ? err.message : "Failed"); } }} disabled={!online}>Restart agent</MenuItem>}
-            {can("vault.view") && <MenuItem icon={<KeyRound />} onSelect={() => router.push(`/vault?device=${d.id}`)}>Credentials</MenuItem>}
+            {can("devices.manage") && <MenuItem icon={<RotateCw />} onSelect={() => rpc("agent_restart", {}, "Agent restarting")} disabled={!online}>Restart agent</MenuItem>}
           </Menu>
         </div>
       </div>
 
       <div className="mt-5 flex flex-wrap items-end justify-between gap-2 border-b border-border">
         <nav className="-mb-px flex items-center gap-1 overflow-x-auto" aria-label="Device sections">
-          {TABS.filter((t) => can(t.permission)).map((t) => {
+          {TABS.filter((t) => can(t.permission) && (!t.platform || t.platform === d.platform)).map((t) => {
             const active = t.href === "" ? rel === "" : rel.startsWith(t.href);
             return <Link key={t.href} href={`${base}${t.href}`} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors focus-ring", active ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg")}><t.icon className="h-4 w-4" />{t.label}</Link>;
           })}
@@ -105,9 +126,9 @@ export function DeviceHeader() {
           <span className="mr-1 hidden text-[10px] font-semibold uppercase tracking-wider text-fg-subtle sm:inline">Tools</span>
           {TOOLS.filter((t) => can(t.permission)).map((t) => {
             const active = rel.startsWith(t.href);
-            const available = online && (t.capability === "scripts" || t.capability === "processes" || d.capabilities.includes(t.capability));
+            const available = online && (t.capability === "scripts" || t.capability === "processes" || hasCap(t.capability));
             return (
-              <Tooltip key={t.href} content={!online ? "Device is offline" : !available ? "Not supported by this agent" : null}>
+              <Tooltip key={t.href} content={!online ? "Device is offline" : !available ? "Not supported by this agent build" : null}>
                 <Link href={`${base}${t.href}`} aria-disabled={!available} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors focus-ring", active ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg", !available && "opacity-50")}><t.icon className="h-4 w-4" />{t.label}</Link>
               </Tooltip>
             );
@@ -117,6 +138,7 @@ export function DeviceHeader() {
 
       {quick && <QuickJobDialog open onOpenChange={(o) => !o && setQuick(null)} action={quick} target={{ type: "device", ids: [d.id], label: d.name }} onCreated={(jobId) => { if (quick === "command") router.push(`${base}/console?job=${jobId}`); }} />}
       {edit && <EditDeviceDialog open onOpenChange={setEdit} />}
+      {shot && <ScreenshotDialog deviceId={d.id} deviceName={d.name} open onOpenChange={setShot} />}
     </div>
   );
 }

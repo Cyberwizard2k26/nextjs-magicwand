@@ -1,31 +1,92 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Bell, CheckCircle2, CircleX, History, Package, Play, Search, ShieldAlert, ShieldCheck, Users, Wrench, XCircle, type LucideIcon } from "lucide-react";
+import { Bell, CheckCircle2, CircleX, Clock, Copy, Download, History, KeyRound, Loader2, LockOpen, MoreHorizontal, Package, Play, RefreshCw, RotateCw, Search, ShieldAlert, ShieldCheck, ShieldMinus, ShieldPlus, Square, Trash2, UserCheck, UserPlus, UserX, Users, Wand2, Wrench, XCircle, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { Checkbox, Field, Input, Select } from "@/components/ui/input";
 import { Badge, severityTone, statusTone } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { Menu, MenuItem, MenuLabel, MenuSeparator, Tooltip } from "@/components/ui/menu";
 import { EmptyState, Pill, Progress, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { useRealtime } from "@/components/shell/realtime-provider";
+import { useRpc } from "@/components/remote/use-rpc";
+import { api, ApiClientError } from "@/lib/client/api";
 import { useDebounce } from "@/lib/client/hooks";
 import { formatBytes, formatDateTime, formatMs, relativeTime } from "@/lib/client/format";
 import { cn } from "@/lib/util/cn";
 import { useDevice } from "./device-context";
 
+const errMsg = (err: unknown, fallback = "Request failed") => (err instanceof ApiClientError ? err.message : err instanceof Error ? err.message : fallback);
+
+/** Row-level "⋯" trigger shared by the inventory tables. Forwards the ref and props Radix's menu trigger injects. */
+const RowMenuButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean; label: string }>(function RowMenuButton({ busy, label, className, onClick, ...props }, ref) {
+  return (
+    <button ref={ref} type="button" aria-label={label} {...props} className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg disabled:opacity-40 focus-ring", className)} onClick={(e) => { e.stopPropagation(); onClick?.(e); }}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+    </button>
+  );
+});
+
+function generatePassword(len = 18) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*-_=+";
+  const bytes = new Uint32Array(len);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
+
+function PasswordField({ value, onChange, label = "New password", hint }: { value: string; onChange: (v: string) => void; label?: string; hint?: string }) {
+  const [show, setShow] = React.useState(false);
+  return (
+    <Field label={label} hint={hint ?? "At least 8 characters. It is sent to the device once and never stored or logged."}>
+      <div className="flex gap-2">
+        <Input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="new-password" className="mono" />
+        <Tooltip content="Generate a strong password"><Button type="button" variant="secondary" size="icon" aria-label="Generate" onClick={() => { onChange(generatePassword()); setShow(true); }}><Wand2 className="h-4 w-4" /></Button></Tooltip>
+        <Tooltip content="Copy"><Button type="button" variant="secondary" size="icon" aria-label="Copy" disabled={!value} onClick={() => { void navigator.clipboard.writeText(value); toast.success("Copied - share it with the user securely"); }}><Copy className="h-4 w-4" /></Button></Tooltip>
+      </div>
+      <label className="mt-1.5 flex items-center gap-2 text-xs text-fg-muted"><Checkbox checked={show} onChange={(e) => setShow(e.target.checked)} /> Show password</label>
+    </Field>
+  );
+}
+
 /* ------------------------------------------------------------------ Software */
-interface SoftwareRow { id: string; name: string; version: string | null; publisher: string | null; installDate: string | null; source: string; sizeBytes: number | null; isSystemComponent: boolean; firstSeenAt: string }
+interface SoftwareRow { id: string; name: string; version: string | null; publisher: string | null; installDate: string | null; source: string; sizeBytes: number | null; isSystemComponent: boolean; firstSeenAt: string; uninstallString: string | null; installLocation: string | null }
+const PKG_MANAGERS = new Set(["winget", "choco", "apt", "dnf", "rpm", "snap", "flatpak", "brew"]);
+const INSTALL_MANAGERS: Record<string, { id: string; label: string; needsUrl?: boolean; hasVersion?: boolean }[]> = {
+  windows: [{ id: "winget", label: "winget", hasVersion: true }, { id: "choco", label: "Chocolatey", hasVersion: true }, { id: "msi", label: "MSI from URL", needsUrl: true }, { id: "exe", label: "EXE installer from URL", needsUrl: true }],
+  linux: [{ id: "apt", label: "apt (Debian/Ubuntu)", hasVersion: true }, { id: "dnf", label: "dnf (Fedora/RHEL)", hasVersion: true }, { id: "snap", label: "snap" }, { id: "flatpak", label: "Flatpak" }, { id: "url", label: "Package from URL (.deb/.rpm)", needsUrl: true }],
+  darwin: [{ id: "brew", label: "Homebrew formula", hasVersion: true }, { id: "brew_cask", label: "Homebrew cask" }, { id: "pkg", label: ".pkg from URL", needsUrl: true }, { id: "url", label: "Download & run installer", needsUrl: true }],
+};
 
 export function DeviceSoftware() {
-  const { data } = useDevice();
+  const { data, can } = useDevice();
+  const d = data.device;
+  const router = useRouter();
   const [q, setQ] = React.useState("");
   const [system, setSystem] = React.useState(false);
+  const [uninstall, setUninstall] = React.useState<SoftwareRow | null>(null);
+  const [installOpen, setInstallOpen] = React.useState(false);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
   const dq = useDebounce(q, 200);
-  const { data: sw, isLoading } = useSWR<{ items: SoftwareRow[] }>([`devices/${data.device.id}/software`, { q: dq || undefined }]);
+  const { data: sw, isLoading, mutate } = useSWR<{ items: SoftwareRow[] }>([`devices/${d.id}/software`, { q: dq || undefined }]);
+  useRealtime(["software.*", "device.inventory"], (ev) => { if (ev.deviceId === d.id) mutate(); }, [`device:${d.id}`]);
   const items = (sw?.items ?? []).filter((s) => system || !s.isSystemComponent);
+  const canManage = can("software.manage") && d.capabilities.includes("software");
+
+  async function runUninstall(s: SoftwareRow) {
+    setBusyId(s.id);
+    try {
+      const manager = PKG_MANAGERS.has(s.source) ? (s.source === "rpm" ? "dnf" : s.source) : undefined;
+      const r = await api.post<{ job: { id: string } }>(`devices/${d.id}/actions`, { action: "software_uninstall", payload: { name: s.name, manager, package: s.name, uninstallString: s.uninstallString ?? undefined, installLocation: s.installLocation ?? undefined } });
+      toast.success(`Uninstalling ${s.name}`, { description: d.status === "online" ? "Runs now; the inventory updates when it finishes." : "Queued until the device comes online.", action: { label: "Job", onClick: () => router.push(`/jobs/${r.job.id}`) } });
+    } catch (err) { toast.error(errMsg(err)); } finally { setBusyId(null); setUninstall(null); }
+  }
+
   const columns: ColumnDef<SoftwareRow, unknown>[] = [
     { accessorKey: "name", header: "Name", cell: ({ row }) => <span className="font-medium text-fg">{row.original.name}</span> },
     { accessorKey: "version", header: "Version", size: 140, cell: ({ getValue }) => <span className="mono text-xs text-fg-muted">{(getValue() as string) || "—"}</span> },
@@ -34,22 +95,95 @@ export function DeviceSoftware() {
     { accessorKey: "source", header: "Source", size: 90, cell: ({ getValue }) => <Badge tone="outline" size="xs">{getValue() as string}</Badge> },
     { accessorKey: "sizeBytes", header: "Size", size: 90, cell: ({ getValue }) => <span className="tabular text-xs text-fg-muted">{getValue() ? formatBytes(getValue() as number, 0) : "—"}</span> },
     { accessorKey: "firstSeenAt", header: "First seen", size: 110, cell: ({ getValue }) => <span className="text-xs text-fg-muted">{relativeTime(getValue() as string)}</span> },
+    ...(canManage ? [{ id: "actions", header: "", size: 48, enableSorting: false, cell: ({ row }) => {
+      const s = row.original;
+      const removable = !s.isSystemComponent && (s.uninstallString || PKG_MANAGERS.has(s.source) || d.platform === "darwin");
+      return (
+        <Menu trigger={<RowMenuButton label={`Actions for ${s.name}`} busy={busyId === s.id} />}>
+          <MenuLabel>{s.name}</MenuLabel>
+          <MenuItem icon={<Trash2 className="h-4 w-4" />} danger disabled={!removable} onSelect={() => setUninstall(s)}>Uninstall…</MenuItem>
+          {!removable && <p className="max-w-[220px] px-2 pb-1.5 text-[11px] text-fg-subtle">No uninstaller is recorded for this entry.</p>}
+        </Menu>
+      );
+    } } satisfies ColumnDef<SoftwareRow, unknown>] : []),
   ];
   return (
-    <TabFrame icon={Package} title="Installed software" count={items.length} toolbar={<><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or publisher…" leftIcon={<Search />} className="sm:w-72" /><Pill active={system} onClick={() => setSystem((s) => !s)}>Show system components</Pill></>}>
-      <DataTable columns={columns} data={items} loading={isLoading} dense emptyMessage={data.device.lastInventoryAt ? "No software matches." : "Software inventory has not been collected yet."} />
+    <TabFrame icon={Package} title="Installed software" count={items.length} toolbar={<>
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or publisher…" leftIcon={<Search />} className="sm:w-72" />
+      <Pill active={system} onClick={() => setSystem((s) => !s)}>Show system components</Pill>
+      {canManage && <Button size="sm" className="ml-auto" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={() => setInstallOpen(true)}>Install package</Button>}
+    </>}>
+      <DataTable columns={columns} data={items} loading={isLoading} dense emptyMessage={d.lastInventoryAt ? "No software matches." : "Software inventory has not been collected yet."} />
+      <ConfirmDialog open={!!uninstall} onOpenChange={(o) => !o && setUninstall(null)} title={`Uninstall ${uninstall?.name ?? ""}?`} description={<>The uninstaller runs silently as {d.platform === "windows" ? "SYSTEM" : "root"}; the user is not asked. {uninstall?.uninstallString && <span className="mono mt-2 block break-all rounded bg-surface-3 px-2 py-1 text-[11px]">{uninstall.uninstallString}</span>}</>} confirmLabel="Uninstall" onConfirm={async () => { if (uninstall) await runUninstall(uninstall); }} loading={!!busyId} />
+      <InstallDialog open={installOpen} onOpenChange={setInstallOpen} />
     </TabFrame>
+  );
+}
+
+function InstallDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { data } = useDevice();
+  const d = data.device;
+  const router = useRouter();
+  const managers = INSTALL_MANAGERS[d.platform] ?? INSTALL_MANAGERS.linux;
+  const osHint = (d.osName ?? "").toLowerCase();
+  const defaultManager = d.platform === "linux" && /fedora|red hat|rhel|centos|rocky|alma|suse/.test(osHint) ? "dnf" : managers[0].id;
+  const [manager, setManager] = React.useState(defaultManager);
+  const [pkg, setPkg] = React.useState("");
+  const [version, setVersion] = React.useState("");
+  const [url, setUrl] = React.useState("");
+  const [args, setArgs] = React.useState("");
+  const [sha256, setSha] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const spec = managers.find((m) => m.id === manager) ?? managers[0];
+  const valid = spec.needsUrl ? /^https?:\/\//.test(url) : pkg.trim().length > 0;
+  async function submit() {
+    setBusy(true);
+    try {
+      const payload = { manager, package: pkg.trim() || undefined, version: version.trim() || undefined, url: url.trim() || undefined, args: args.trim() || undefined, sha256: sha256.trim() || undefined };
+      const r = await api.post<{ job: { id: string } }>(`devices/${d.id}/actions`, { action: "software_install", payload });
+      toast.success(`Installing ${pkg || url}`, { action: { label: "Job", onClick: () => router.push(`/jobs/${r.job.id}`) } });
+      onOpenChange(false);
+      setPkg(""); setVersion(""); setUrl(""); setArgs(""); setSha("");
+    } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Install software" description={`Silent install on ${d.name}. Runs as ${d.platform === "windows" ? "SYSTEM" : "root"}, queued if the device is offline, recorded as a job.`}
+      footer={<><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={submit} disabled={!valid} loading={busy} leftIcon={<Download className="h-4 w-4" />}>Install</Button></>}>
+      <div className="space-y-3">
+        <Field label="Package manager"><Select value={manager} onChange={(e) => setManager(e.target.value)}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</Select></Field>
+        {spec.needsUrl ? (
+          <>
+            <Field label="Download URL" hint="HTTPS only. The agent downloads it as SYSTEM/root and runs the silent installer."><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/setup.msi" autoFocus /></Field>
+            <Field label="Expected SHA-256" hint="Optional but recommended: the install is refused if the download does not match."><Input value={sha256} onChange={(e) => setSha(e.target.value)} className="mono" placeholder="64 hex characters" /></Field>
+            <Field label="Display name" hint="Used for the job name and the inventory diff."><Input value={pkg} onChange={(e) => setPkg(e.target.value)} placeholder="Example Agent" /></Field>
+          </>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+            <Field label={manager === "winget" ? "Package id" : "Package"}><Input value={pkg} onChange={(e) => setPkg(e.target.value)} placeholder={manager === "winget" ? "Mozilla.Firefox" : manager === "choco" ? "firefox" : manager.startsWith("brew") ? "firefox" : "curl"} autoFocus className="mono" /></Field>
+            {spec.hasVersion && <Field label="Version" hint="optional"><Input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="latest" className="mono" /></Field>}
+          </div>
+        )}
+        <Field label="Extra installer arguments" hint="optional"><Input value={args} onChange={(e) => setArgs(e.target.value)} className="mono" placeholder={d.platform === "windows" ? "/qn ALLUSERS=1" : ""} /></Field>
+      </div>
+    </Dialog>
   );
 }
 
 /* ------------------------------------------------------------------ Services */
 interface ServiceRow { id: string; name: string; displayName: string | null; status: string; startType: string; account: string | null; pid: number | null; path: string | null; description: string | null }
+type ServiceResult = { name: string; status?: string; startType?: string; output?: string };
 
 export function DeviceServices() {
-  const { data } = useDevice();
+  const { data, can } = useDevice();
+  const d = data.device;
+  const rpc = useRpc(d.id);
   const [q, setQ] = React.useState("");
   const [filter, setFilter] = React.useState<"all" | "running" | "stopped" | "auto_stopped">("all");
-  const { data: res, isLoading } = useSWR<{ items: ServiceRow[] }>(`devices/${data.device.id}/services`);
+  const [pending, setPending] = React.useState<string | null>(null);
+  const { data: res, isLoading, mutate } = useSWR<{ items: ServiceRow[] }>(`devices/${d.id}/services`);
+  useRealtime(["device.inventory"], (ev) => { if (ev.deviceId === d.id) mutate(); }, [`device:${d.id}`]);
+  const online = d.status === "online";
+  const canAct = can("remote.tools") && d.capabilities.includes("services");
   const items = (res?.items ?? []).filter((s) => {
     if (filter === "running" && s.status !== "running") return false;
     if (filter === "stopped" && s.status === "running") return false;
@@ -58,6 +192,20 @@ export function DeviceServices() {
     return true;
   });
   const autoStopped = (res?.items ?? []).filter((s) => s.startType === "auto" && s.status !== "running").length;
+
+  async function act(s: ServiceRow, action: "start" | "stop" | "restart" | "enable" | "disable", startType?: string) {
+    setPending(s.name);
+    try {
+      let r = (await rpc.call<ServiceResult>("service_action", { name: s.name, action, startType })).data;
+      if (!r?.status || r.status === "unknown") { try { r = { ...r, ...(await rpc.call<ServiceResult>("service_action", { name: s.name, action: "status" })).data }; } catch { /* keep what we have */ } }
+      const next = { status: r?.status && r.status !== "unknown" ? r.status : action === "stop" || action === "disable" ? "stopped" : action === "start" || action === "restart" ? "running" : s.status, startType: r?.startType ?? (startType ?? (action === "enable" ? "auto" : action === "disable" ? "disabled" : s.startType)) };
+      mutate((cur) => (cur ? { ...cur, items: cur.items.map((x) => (x.name === s.name ? { ...x, ...next } : x)) } : cur), { revalidate: false });
+      const verb = { start: "started", stop: "stopped", restart: "restarted", enable: "set to start automatically", disable: "disabled" }[action];
+      toast.success(`${s.displayName || s.name} ${startType && action !== "disable" && action !== "enable" ? `startup set to ${startType}` : verb}`);
+    } catch (err) { toast.error(errMsg(err)); } finally { setPending(null); }
+  }
+
+  const startTypes: { id: string; label: string }[] = d.platform === "windows" ? [{ id: "auto", label: "Automatic" }, { id: "delayed", label: "Automatic (delayed)" }, { id: "manual", label: "Manual" }, { id: "disabled", label: "Disabled" }] : d.platform === "linux" ? [{ id: "auto", label: "Enabled at boot" }, { id: "disabled", label: "Disabled" }] : [];
   const columns: ColumnDef<ServiceRow, unknown>[] = [
     { accessorKey: "displayName", header: "Service", cell: ({ row }) => <div className="min-w-0"><div className="truncate font-medium text-fg">{row.original.displayName || row.original.name}</div>{row.original.displayName && <div className="mono truncate text-[11px] text-fg-subtle">{row.original.name}</div>}</div> },
     { accessorKey: "status", header: "Status", size: 110, cell: ({ getValue }) => <Badge tone={statusTone(getValue() as string) === "success" ? "success" : (getValue() as string) === "stopped" ? "neutral" : "warning"} size="xs" dot>{getValue() as string}</Badge> },
@@ -65,13 +213,29 @@ export function DeviceServices() {
     { accessorKey: "account", header: "Account", size: 160, cell: ({ getValue }) => <span className="truncate text-xs text-fg-muted">{(getValue() as string) || "—"}</span> },
     { accessorKey: "pid", header: "PID", size: 70, cell: ({ getValue }) => <span className="mono text-xs text-fg-muted">{(getValue() as number) || "—"}</span> },
     { accessorKey: "path", header: "Path", size: 320, cell: ({ getValue }) => <span className="mono block truncate text-[11px] text-fg-subtle" title={getValue() as string}>{(getValue() as string) || "—"}</span> },
+    ...(canAct ? [{ id: "actions", header: "", size: 48, enableSorting: false, cell: ({ row }) => {
+      const s = row.original;
+      const running = s.status === "running";
+      return (
+        <Menu trigger={<RowMenuButton label={`Actions for ${s.displayName || s.name}`} busy={pending === s.name} disabled={!online} />}>
+          <MenuLabel>{s.displayName || s.name}</MenuLabel>
+          <MenuItem icon={<Play className="h-4 w-4" />} disabled={running} onSelect={() => act(s, "start")}>Start</MenuItem>
+          <MenuItem icon={<Square className="h-4 w-4" />} disabled={!running} onSelect={() => act(s, "stop")}>Stop</MenuItem>
+          <MenuItem icon={<RotateCw className="h-4 w-4" />} onSelect={() => act(s, "restart")}>Restart</MenuItem>
+          {startTypes.length > 0 && <><MenuSeparator /><MenuLabel>Startup type</MenuLabel>{startTypes.map((t) => <MenuItem key={t.id} disabled={s.startType === t.id} onSelect={() => act(s, t.id === "disabled" ? "disable" : t.id === "auto" && d.platform === "linux" ? "enable" : "enable", t.id)}>{t.label}{s.startType === t.id ? " ✓" : ""}</MenuItem>)}</>}
+          {d.platform === "darwin" && <><MenuSeparator /><MenuItem icon={<CheckCircle2 className="h-4 w-4" />} onSelect={() => act(s, "enable")}>Enable (launchctl)</MenuItem><MenuItem icon={<XCircle className="h-4 w-4" />} onSelect={() => act(s, "disable")}>Disable (launchctl)</MenuItem></>}
+        </Menu>
+      );
+    } } satisfies ColumnDef<ServiceRow, unknown>] : []),
   ];
   return (
     <TabFrame icon={Wrench} title="Services" count={items.length} toolbar={<>
       <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search services…" leftIcon={<Search />} className="sm:w-72" />
       {([["all", "All"], ["running", "Running"], ["stopped", "Stopped"], ["auto_stopped", `Automatic but stopped${autoStopped ? ` (${autoStopped})` : ""}`]] as const).map(([v, l]) => <Pill key={v} active={filter === v} onClick={() => setFilter(v)}>{l}</Pill>)}
+      {canAct && <Tooltip content="Re-read services from the device"><Button size="sm" variant="ghost" className="ml-auto" leftIcon={<RefreshCw className={cn("h-3.5 w-3.5", rpc.busy && "animate-spin")} />} disabled={!online || !can("devices.manage")} onClick={async () => { try { await api.post(`devices/${d.id}/actions`, { action: "inventory", runWhenOnline: false }); toast.success("Inventory refresh requested"); } catch (err) { toast.error(errMsg(err)); } }}>Refresh</Button></Tooltip>}
     </>}>
       {autoStopped > 0 && filter === "all" && <div className="mb-3 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"><ShieldAlert className="h-4 w-4" />{autoStopped} service{autoStopped === 1 ? " is" : "s are"} set to start automatically but not running. <button type="button" className="underline" onClick={() => setFilter("auto_stopped")}>Show</button></div>}
+      {canAct && !online && <p className="mb-3 text-xs text-fg-subtle">The device is offline: start, stop and startup-type changes need a live agent connection.</p>}
       <DataTable columns={columns} data={items} loading={isLoading} dense emptyMessage="No services reported." />
     </TabFrame>
   );
@@ -79,22 +243,107 @@ export function DeviceServices() {
 
 /* ------------------------------------------------------------------ Users */
 interface UserRow { id: string; username: string; fullName: string | null; isAdmin: boolean; enabled: boolean; passwordExpires: boolean; lastLogonAt: string | null; uid: string | null; managed: boolean }
+type UserAction = "unlock" | "enable" | "disable" | "reset_password" | "expire_password" | "create" | "delete" | "add_admin" | "remove_admin";
 
 export function DeviceUsers() {
-  const { data } = useDevice();
-  const { data: res, isLoading } = useSWR<{ items: UserRow[] }>(`devices/${data.device.id}/users`);
+  const { data, can } = useDevice();
+  const d = data.device;
+  const rpc = useRpc(d.id);
+  const { data: res, isLoading, mutate } = useSWR<{ items: UserRow[] }>(`devices/${d.id}/users`);
+  useRealtime(["device.inventory"], (ev) => { if (ev.deviceId === d.id) mutate(); }, [`device:${d.id}`]);
+  const [pending, setPending] = React.useState<string | null>(null);
+  const [reset, setReset] = React.useState<UserRow | null>(null);
+  const [del, setDel] = React.useState<UserRow | null>(null);
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const online = d.status === "online";
+  const canManage = can("security.manage") && d.capabilities.includes("local_users");
   const items = res?.items ?? [];
+
+  /** Runs one account action, patches the cached row, then asks the agent to re-inventory users so the table is truthful. */
+  async function act(username: string, action: UserAction, extra: Record<string, unknown> = {}, patch?: Partial<UserRow>) {
+    setPending(username);
+    try {
+      await rpc.call("local_user_action", { username, action, ...extra });
+      if (patch) mutate((cur) => (cur ? { ...cur, items: cur.items.map((u) => (u.username === username ? { ...u, ...patch } : u)) } : cur), { revalidate: false });
+      if (action === "create" || action === "delete") mutate();
+      if (can("devices.manage")) api.post(`devices/${d.id}/actions`, { action: "inventory", runWhenOnline: false }).catch(() => undefined);
+      return true;
+    } catch (err) { toast.error(errMsg(err)); return false; } finally { setPending(null); }
+  }
+  const signedIn = (u: UserRow) => d.loggedInUsers?.some((x) => x.user.toLowerCase().endsWith(u.username.toLowerCase()));
+
   const columns: ColumnDef<UserRow, unknown>[] = [
-    { accessorKey: "username", header: "Account", cell: ({ row }) => <div className="flex items-center gap-2"><span className="font-medium text-fg">{row.original.username}</span>{row.original.isAdmin && <Badge tone="warning" size="xs">admin</Badge>}{row.original.managed && <Badge tone="accent" size="xs">rotated</Badge>}{data.device.loggedInUsers?.some((u) => u.user.toLowerCase().endsWith(row.original.username.toLowerCase())) && <Badge tone="success" size="xs" dot>signed in</Badge>}</div> },
+    { accessorKey: "username", header: "Account", cell: ({ row }) => <div className="flex items-center gap-2"><span className="font-medium text-fg">{row.original.username}</span>{row.original.isAdmin && <Badge tone="warning" size="xs">admin</Badge>}{row.original.managed && <Badge tone="accent" size="xs">rotated</Badge>}{signedIn(row.original) && <Badge tone="success" size="xs" dot>signed in</Badge>}</div> },
     { accessorKey: "fullName", header: "Full name", size: 200, cell: ({ getValue }) => <span className="text-fg-muted">{(getValue() as string) || "—"}</span> },
     { accessorKey: "enabled", header: "Enabled", size: 90, cell: ({ getValue }) => (getValue() ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-fg-subtle" />) },
     { accessorKey: "passwordExpires", header: "Password expires", size: 140, cell: ({ getValue }) => <span className="text-xs text-fg-muted">{getValue() ? "yes" : "never"}</span> },
     { accessorKey: "lastLogonAt", header: "Last logon", size: 140, cell: ({ getValue }) => <span className="text-xs text-fg-muted">{getValue() ? relativeTime(getValue() as string) : "—"}</span> },
+    ...(canManage ? [{ id: "actions", header: "", size: 48, enableSorting: false, cell: ({ row }) => {
+      const u = row.original;
+      return (
+        <Menu trigger={<RowMenuButton label={`Actions for ${u.username}`} busy={pending === u.username} disabled={!online} />}>
+          <MenuLabel>{u.username}</MenuLabel>
+          <MenuItem icon={<LockOpen className="h-4 w-4" />} onSelect={async () => { if (await act(u.username, "unlock", {}, { enabled: true })) toast.success(`${u.username} unlocked`, { description: "Lockout cleared and the account enabled. The user can sign in again." }); }}>Unlock account</MenuItem>
+          {u.enabled
+            ? <MenuItem icon={<UserX className="h-4 w-4" />} disabled={signedIn(u)} onSelect={async () => { if (await act(u.username, "disable", {}, { enabled: false })) toast.success(`${u.username} disabled`); }}>Disable sign-in</MenuItem>
+            : <MenuItem icon={<UserCheck className="h-4 w-4" />} onSelect={async () => { if (await act(u.username, "enable", {}, { enabled: true })) toast.success(`${u.username} enabled`); }}>Enable sign-in</MenuItem>}
+          <MenuSeparator />
+          <MenuItem icon={<KeyRound className="h-4 w-4" />} onSelect={() => setReset(u)}>Reset password…</MenuItem>
+          <MenuItem icon={<Clock className="h-4 w-4" />} onSelect={async () => { if (await act(u.username, "expire_password", {}, { passwordExpires: true })) toast.success(`${u.username} must change their password at next sign-in`); }}>Require password change</MenuItem>
+          <MenuSeparator />
+          {u.isAdmin
+            ? <MenuItem icon={<ShieldMinus className="h-4 w-4" />} onSelect={async () => { if (await act(u.username, "remove_admin", {}, { isAdmin: false })) toast.success(`${u.username} is no longer an administrator`); }}>Remove administrator rights</MenuItem>
+            : <MenuItem icon={<ShieldPlus className="h-4 w-4" />} onSelect={async () => { if (await act(u.username, "add_admin", {}, { isAdmin: true })) toast.success(`${u.username} is now a local administrator`); }}>Make administrator</MenuItem>}
+          <MenuSeparator />
+          <MenuItem icon={<Trash2 className="h-4 w-4" />} danger disabled={signedIn(u)} onSelect={() => setDel(u)}>Delete account…</MenuItem>
+        </Menu>
+      );
+    } } satisfies ColumnDef<UserRow, unknown>] : []),
   ];
   return (
-    <TabFrame icon={Users} title="Local users" count={items.length}>
+    <TabFrame icon={Users} title="Local users" count={items.length} toolbar={canManage ? <Button size="sm" className="ml-auto" leftIcon={<UserPlus className="h-3.5 w-3.5" />} disabled={!online} onClick={() => setCreateOpen(true)}>Create account</Button> : undefined}>
+      {canManage && !online && <p className="mb-3 text-xs text-fg-subtle">The device is offline: account changes need a live agent connection. Unlocking, resets and admin changes resume when it reconnects.</p>}
       <DataTable columns={columns} data={items} loading={isLoading} dense emptyMessage="No local accounts reported." />
+      <ResetPasswordDialog user={reset} onClose={() => setReset(null)} onSubmit={async (password, mustChange) => { const ok = await act(reset!.username, "reset_password", { password }, mustChange ? { passwordExpires: true } : undefined); if (ok) { if (mustChange) await act(reset!.username, "expire_password", {}, { passwordExpires: true }); toast.success(`Password reset for ${reset!.username}`); setReset(null); } }} busy={!!pending} />
+      <ConfirmDialog open={!!del} onOpenChange={(o) => !o && setDel(null)} title={`Delete ${del?.username ?? ""}?`} description="The local account is removed from this device. The home folder is left in place for recovery; delete it with the file browser if you need to." confirmLabel="Delete account" loading={!!pending} onConfirm={async () => { if (del && (await act(del.username, "delete"))) { toast.success(`${del.username} deleted`); setDel(null); } }} />
+      <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} busy={!!pending} onSubmit={async (f) => { if (await act(f.username, "create", { password: f.password, fullName: f.fullName || undefined, admin: f.admin })) { toast.success(`Account ${f.username} created`); setCreateOpen(false); } }} />
     </TabFrame>
+  );
+}
+
+function ResetPasswordDialog({ user, onClose, onSubmit, busy }: { user: UserRow | null; onClose: () => void; onSubmit: (password: string, mustChange: boolean) => Promise<void>; busy: boolean }) {
+  const [password, setPassword] = React.useState("");
+  const [mustChange, setMustChange] = React.useState(true);
+  const open = !!user;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPassword(""); } }} title={`Reset password for ${user?.username ?? ""}`} description="Sets a new password on the device immediately. Any lockout is cleared as part of the reset."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={async () => { await onSubmit(password, mustChange); setPassword(""); }} disabled={password.length < 8} loading={busy} leftIcon={<KeyRound className="h-4 w-4" />}>Reset password</Button></>}>
+      <div className="space-y-3">
+        <PasswordField value={password} onChange={setPassword} />
+        <label className="flex items-center gap-2 text-sm"><Checkbox checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} /> Require a new password at next sign-in</label>
+      </div>
+    </Dialog>
+  );
+}
+
+function CreateUserDialog({ open, onOpenChange, onSubmit, busy }: { open: boolean; onOpenChange: (o: boolean) => void; onSubmit: (f: { username: string; fullName: string; password: string; admin: boolean }) => Promise<void>; busy: boolean }) {
+  const [username, setUsername] = React.useState("");
+  const [fullName, setFullName] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [admin, setAdmin] = React.useState(false);
+  const valid = /^[A-Za-z0-9._-]{1,32}$/.test(username) && password.length >= 8;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Create local account" description="Creates a local user on this device only. Consider a directory-joined account for anything permanent."
+      footer={<><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={async () => { await onSubmit({ username, fullName, password, admin }); setUsername(""); setFullName(""); setPassword(""); setAdmin(false); }} disabled={!valid} loading={busy} leftIcon={<UserPlus className="h-4 w-4" />}>Create</Button></>}>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Username" hint="letters, digits, . _ -"><Input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus className="mono" autoComplete="off" /></Field>
+          <Field label="Full name" hint="optional"><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /></Field>
+        </div>
+        <PasswordField value={password} onChange={setPassword} label="Password" />
+        <label className="flex items-center gap-2 text-sm"><Checkbox checked={admin} onChange={(e) => setAdmin(e.target.checked)} /> Local administrator</label>
+      </div>
+    </Dialog>
   );
 }
 

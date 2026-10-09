@@ -59,3 +59,12 @@ This document is the contract every module follows. Read it before adding code.
 ## Quality gate
 
 `npm run typecheck && npm run lint && npm run test` and `cd agent && go vet ./... && bash build.sh` must pass before a change is done.
+
+## Remote sessions (terminal)
+
+- A terminal is a `remote_sessions` row (`type: terminal`) plus one agent stream and any number of browser viewer streams. `lib/services/remote-sessions.ts` owns the lifecycle: `openTerminalSession()` allocates the agent stream, sends `session_open`, keeps a 64 KB replay buffer and fans frames out to viewers; `attachViewer()` / `detachViewer()` bind browser streams (owner or superadmin only); `endSession()` sends `session_close` and closes the row.
+- Frames inside a terminal stream carry a one-byte type prefix: `0 DATA` (raw bytes), `1 RESIZE` (`{cols,rows}` JSON), `2 CLOSE` (`{exitCode,reason}`), `3 READY` (`{shell,pid,cols,rows}`). The constants live in `lib/services/remote-sessions.ts` (`TERM_FRAME`), `components/remote/terminal.tsx` (`F`) and `agent/internal/sessions/manager.go`; keep all three in sync.
+- Browser side: `getRealtime().openStream(handler)` gives a viewer stream id, `rt.send({ t: "attach", sessionId, viewerStreamId })` binds it, `rt.sendBinary(id, frame)` writes keystrokes. Agent side: `internal/sessions` starts a PTY (`creack/pty` on unix, ConPTY on Windows) and copies bytes both ways; `runAs: "user"` runs the shell as the signed-in console user.
+- `lib/modules/remote` subscribes to the bus (`client.message`, `client.disconnected`, `agent.session`, `agent.disconnected`) and is the only place that touches the live-session registry from events.
+- `lib/protocol/agent.ts` gained one additive command type, `unlock_session`, for this work (frozen file; recorded here as the exception).
+- Patching: agents report `patch_scan` results through `lib/services/patches.ts` (`applyPatchScan`, `applyPatchInstallResult`); the fleet view is `GET /api/v1/patches` (`?summary=1` for compliance counters, `?externalId=` for the devices missing one update).

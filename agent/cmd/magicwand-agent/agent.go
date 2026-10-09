@@ -14,6 +14,7 @@ import (
 	"github.com/cyberwizard2k26/nextjs-magicwand/agent/internal/identity"
 	"github.com/cyberwizard2k26/nextjs-magicwand/agent/internal/logging"
 	"github.com/cyberwizard2k26/nextjs-magicwand/agent/internal/protocol"
+	"github.com/cyberwizard2k26/nextjs-magicwand/agent/internal/sessions"
 	"github.com/cyberwizard2k26/nextjs-magicwand/agent/internal/transport"
 )
 
@@ -23,6 +24,7 @@ type Agent struct {
 	id   *identity.Identity
 	cli  *transport.Client
 	disp *commands.Dispatcher
+	sess *sessions.Manager
 
 	mu            sync.Mutex
 	serverConfig  map[string]interface{}
@@ -39,9 +41,11 @@ func NewAgent(cfg *config.Config, id *identity.Identity) *Agent {
 		OnCommand: func(c *protocol.Command) { a.disp.Handle(c) },
 		OnConfig:  a.applyConfig,
 		OnChat:    func(c *protocol.ServerChat) { logging.Infof("chat from %s: %s", c.From, c.Body) },
+		OnBinary:  func(streamID uint32, payload []byte) { a.sess.HandleFrame(streamID, payload) },
 		OnError:   func(e *protocol.ServerError) { logging.Errorf("server error %s: %s", e.Code, e.Message) },
-		OnClose:   func(err error) {},
+		OnClose:   func(err error) { a.sess.CloseAll("connection lost") },
 	})
+	a.sess = sessions.NewManager(a.cli)
 	a.disp = commands.NewDispatcher(a.cli)
 	a.registerCommands()
 	return a
@@ -57,7 +61,7 @@ func (a *Agent) hello() *protocol.Hello {
 		OSVersion:    sys.OSVersion,
 		OSBuild:      sys.OSBuild,
 		Kernel:       sys.Kernel,
-		Capabilities: protocol.Capabilities,
+		Capabilities: append(append([]string{}, protocol.Capabilities...), platformCapabilities()...),
 		Roles:        a.cfg.Roles,
 		TZ:           sys.Timezone,
 	}
@@ -142,6 +146,23 @@ func (a *Agent) registerCommands() {
 	d.Register("port_check", commands.PortCheck)
 	d.Register("dns_lookup", commands.DNSLookup)
 	d.Register("traceroute", commands.Traceroute)
+	d.Register("service_action", commands.ServiceAction)
+	d.Register("local_user_action", commands.LocalUserAction)
+	d.Register("unlock_session", commands.UnlockSession)
+	d.Register("eventlog_query", commands.EventLogQuery)
+	d.Register("task_scheduler_list", commands.TaskSchedulerList)
+	d.Register("task_scheduler_action", commands.TaskSchedulerAction)
+	d.Register("patch_scan", commands.PatchScan)
+	d.Register("patch_install", commands.PatchInstall)
+	d.Register("software_install", commands.SoftwareInstall)
+	d.Register("software_uninstall", commands.SoftwareUninstall)
+	d.Register("screenshot", commands.Screenshot)
+	d.Register("message_user", commands.MessageUser)
+	d.Register("notify_user", commands.NotifyUser)
+	d.Register("registry_list", commands.RegistryList)
+	d.Register("registry_get", commands.RegistryGet)
+	d.Register("registry_set", commands.RegistrySet)
+	d.Register("registry_delete", commands.RegistryDelete)
 	d.Register("inventory", func(ctx context.Context, c *commands.Command) (interface{}, error) {
 		var args struct {
 			Full     bool     `json:"full"`
@@ -168,6 +189,29 @@ func (a *Agent) registerCommands() {
 	d.Register("agent_restart", func(ctx context.Context, c *commands.Command) (interface{}, error) {
 		go func() { time.Sleep(500 * time.Millisecond); requestRestart() }()
 		return map[string]interface{}{"restarting": true}, nil
+	})
+	d.Register("session_open", func(ctx context.Context, c *commands.Command) (interface{}, error) {
+		var req sessions.OpenRequest
+		if err := c.Arg(&req); err != nil {
+			return nil, err
+		}
+		req.RunAs = c.RunAs
+		s, err := a.sess.Open(req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"sessionId": s.ID, "streamId": s.StreamID, "shell": s.Shell}, nil
+	})
+	d.Register("session_close", func(ctx context.Context, c *commands.Command) (interface{}, error) {
+		var args struct {
+			SessionID string `json:"sessionId"`
+			Reason    string `json:"reason"`
+		}
+		_ = c.Arg(&args)
+		if args.Reason == "" {
+			args.Reason = "closed by server"
+		}
+		return map[string]interface{}{"closed": a.sess.Close(args.SessionID, args.Reason)}, nil
 	})
 	d.Register("config_update", func(ctx context.Context, c *commands.Command) (interface{}, error) {
 		var cfg map[string]interface{}
@@ -210,6 +254,7 @@ func (a *Agent) Run(ctx context.Context) {
 	go func() { defer wg.Done(); a.heartbeatLoop(ctx) }()
 	go func() { defer wg.Done(); a.collectorLoop(ctx) }()
 	wg.Wait()
+	a.sess.CloseAll("agent stopping")
 	a.disp.CancelAll()
 }
 

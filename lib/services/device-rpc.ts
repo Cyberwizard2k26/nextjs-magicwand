@@ -42,6 +42,19 @@ export const RPC_COMMANDS = {
   agent_restart: { permission: "devices.manage", args: z.object({}), timeoutSeconds: 15, audit: true },
   lock: { permission: "devices.power", args: z.object({}), timeoutSeconds: 30, audit: true },
   logoff: { permission: "devices.power", args: z.object({ user: z.string().max(256).optional() }), timeoutSeconds: 60, audit: true },
+  unlock_session: { permission: "devices.power", args: z.object({}), timeoutSeconds: 30, audit: true },
+  service_action: { permission: "remote.tools", args: z.object({ name: z.string().min(1).max(256), action: z.enum(["start", "stop", "restart", "enable", "disable", "status"]).default("status"), startType: z.enum(["auto", "manual", "disabled", "delayed"]).optional() }), timeoutSeconds: 120, audit: true },
+  local_user_action: { permission: "security.manage", args: z.object({ username: z.string().min(1).max(104), action: z.enum(["unlock", "enable", "disable", "reset_password", "expire_password", "create", "delete", "add_admin", "remove_admin"]), password: z.string().min(8).max(256).optional(), fullName: z.string().max(256).optional(), admin: z.boolean().optional() }), timeoutSeconds: 60, audit: true },
+  eventlog_query: { permission: "remote.tools", args: z.object({ source: z.string().max(200).optional(), level: z.enum(["error", "warning", "info"]).optional(), limit: z.number().int().min(1).max(1000).optional(), sinceMinutes: z.number().int().min(1).max(60 * 24 * 30).optional(), search: z.string().max(200).optional() }), timeoutSeconds: 120, audit: false },
+  task_scheduler_list: { permission: "remote.tools", args: z.object({}), timeoutSeconds: 120, audit: false },
+  task_scheduler_action: { permission: "remote.tools", args: z.object({ name: z.string().min(1).max(512), path: z.string().max(512).optional(), source: z.string().max(40).optional(), action: z.enum(["run", "enable", "disable"]) }), timeoutSeconds: 60, audit: true },
+  registry_list: { permission: "remote.tools", args: z.object({ hive: z.string().max(40).optional(), path: z.string().max(1024).default("") }), timeoutSeconds: 30, audit: false },
+  registry_get: { permission: "remote.tools", args: z.object({ hive: z.string().max(40).optional(), path: z.string().max(1024), name: z.string().max(256) }), timeoutSeconds: 30, audit: false },
+  registry_set: { permission: "remote.tools", args: z.object({ hive: z.string().max(40).optional(), path: z.string().max(1024), name: z.string().max(256), type: z.enum(["string", "expand", "dword", "qword", "multi", "binary"]).default("string"), value: z.unknown() }), timeoutSeconds: 30, audit: true },
+  registry_delete: { permission: "remote.tools", args: z.object({ hive: z.string().max(40).optional(), path: z.string().max(1024), name: z.string().max(256).optional() }), timeoutSeconds: 30, audit: true },
+  screenshot: { permission: "remote.desktop", args: z.object({}), timeoutSeconds: 60, audit: true },
+  message_user: { permission: "remote.tools", args: z.object({ title: z.string().max(200).optional(), body: z.string().min(1).max(2000), timeoutSeconds: z.number().int().min(0).max(3600).optional(), buttons: z.enum(["ok", "okcancel", "yesno"]).optional() }), timeoutSeconds: 3700, audit: true },
+  notify_user: { permission: "remote.tools", args: z.object({ title: z.string().max(200).optional(), body: z.string().min(1).max(2000) }), timeoutSeconds: 60, audit: true },
 } as const satisfies Partial<Record<CommandType, RpcSpec>>;
 
 export type RpcCommand = keyof typeof RPC_COMMANDS;
@@ -51,8 +64,11 @@ export function rpcSpec(cmd: string): RpcSpec | null {
   return (RPC_COMMANDS as Record<string, RpcSpec>)[cmd] ?? null;
 }
 
-/** Arguments never worth storing verbatim in the audit log (file contents). */
+/** Arguments never worth storing verbatim in the audit log (file contents, passwords). */
 export function auditSafeArgs(args: Record<string, unknown>): Record<string, unknown> {
-  const { contentBase64, ...rest } = args;
-  return contentBase64 ? { ...rest, bytes: Math.floor((String(contentBase64).length * 3) / 4) } : rest;
+  const { contentBase64, password, ...rest } = args;
+  const out: Record<string, unknown> = rest;
+  if (contentBase64) out.bytes = Math.floor((String(contentBase64).length * 3) / 4);
+  if (password !== undefined) out.password = "[redacted]";
+  return out;
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { api, errors } from "@/lib/api/route";
 import { requireDevice } from "@/lib/services/device-access";
 import { deviceJobRuns, deviceLocalUsers, deviceServices, deviceSoftware, deviceTelemetry, deviceTimeline } from "@/lib/services/device-detail";
+import { devicePatches } from "@/lib/services/patches";
 import { getDb, schema } from "@/lib/db";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -24,6 +25,7 @@ export const GET = api({ permission: "devices.view", query: Query }, async ({ or
     case "telemetry": return deviceTelemetry(device.id, query.range);
     case "timeline": return { items: await deviceTimeline(device.id, orgId, { before: query.before ? new Date(query.before) : undefined, limit: query.limit }) };
     case "jobs": return { items: await deviceJobRuns(device.id, query.limit ?? 50) };
+    case "patches": return { items: await devicePatches(device.id), lastScanAt: device.lastPatchScanAt, pendingReboot: device.pendingReboot };
     case "events": {
       const db = await getDb();
       const items = await db.select().from(schema.deviceEvents).where(and(eq(schema.deviceEvents.deviceId, device.id))).orderBy(desc(schema.deviceEvents.ts)).limit(query.limit ?? 100);
