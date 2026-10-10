@@ -1,0 +1,14 @@
+# Railway upload ignore — keep the upload lean.
+node_modules/
+panel/server/node_modules/
+panel/server/data/
+data/
+builds/
+*.db
+*.db-journal
+*.log
+.git/
+.env
+agent-cpp/out/
+agent-cpp/stage/
+**/__pycache__/

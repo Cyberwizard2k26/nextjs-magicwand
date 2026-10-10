@@ -1,0 +1,33 @@
+# deps
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# runtime data
+panel/server/data/
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# secrets
+.env
+*.key
+*.pem
+*.crt
+
+# builds
+builds/
+*.exe
+*.dll
+dist/
+
+# logs
+*.log
+logs/
+
+# os
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+{
+  "name": "phantomripper-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PhantomRipperRMM web C2 panel — merged OSRipper + PhantomRMM",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "mysql2": "^3.11.5",
+    "ws": "^8.18.0"
+  }
+}

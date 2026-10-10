@@ -1,0 +1,12 @@
+# PhantomRipperRMM payload tooling — Python dependencies.
+# The generated agent itself is stdlib-only. These are for the builder
+# (compilation + optional transports).
+
+# Binary compilation of Python payloads to standalone executables
+nuitka>=2.4
+
+# Dynamic tunnelling for hosts without a public IP
+pyngrok>=7.0
+
+# Optional: richer HTTP client for DoH transports
+httpx>=0.27
