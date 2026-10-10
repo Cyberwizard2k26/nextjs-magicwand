@@ -1,5 +1,5 @@
-import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Monitor, Bell, Play, FileCode2, Workflow, ShieldCheck, Download, Package, Cast, Ticket, BookOpen, KeyRound, BarChart3, Network, Lock, Settings, Sparkles, Users, Building2, Puzzle, ScrollText, Server, Globe, CalendarClock, Bug, FolderKanban } from "lucide-react";
+﻿import type { LucideIcon } from "lucide-react";
+import { LayoutDashboard, Monitor, Bell, Play, FileCode2, Workflow, ShieldCheck, Download, Package, Cast, Ticket, BookOpen, KeyRound, BarChart3, Network, Lock, Settings, Sparkles, Users, Building2, Puzzle, ScrollText, Server, Globe, CalendarClock, Bug, FolderKanban, Ghost } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -64,6 +64,12 @@ export const NAV: NavGroup[] = [
       { label: "Audit log", href: "/settings/audit", icon: ScrollText, permission: "audit.view" },
       { label: "Settings", href: "/settings", icon: Settings, permission: "org.view" },
       { label: "Platform", href: "/platform", icon: Globe, superAdmin: true },
+    ],
+  },
+  {
+    label: "Offensive",
+    items: [
+      { label: "Phantom C2", href: "/phantom", icon: Ghost },
     ],
   },
 ];
