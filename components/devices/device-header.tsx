@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Activity, Braces, CalendarClock, Camera, Cast, ChevronDown, ChevronRight, Download, FolderOpen, Gauge, History, KeyRound, ListTree, Network, Package, Pencil, Play, Radar, RotateCw, ScrollText, Settings2, ShieldCheck, SquareTerminal, Terminal, Unlock, UserCheck, Users, Zap } from "lucide-react";
+import { Activity, Braces, CalendarClock, Camera, Cast, ChevronDown, ChevronRight, Download, FolderOpen, Gauge, History, KeyRound, ListTree, Network, Package, Pencil, Play, Radar, RotateCw, ScrollText, Settings2, ShieldCheck, Sparkles, SquareTerminal, StickyNote, Terminal, Unlock, UserCheck, Users, Wrench, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -28,6 +28,7 @@ const TABS = [
   { href: "/tasks", label: "Tasks", icon: CalendarClock, permission: "remote.tools" },
   { href: "/registry", label: "Registry", icon: Braces, permission: "remote.tools", platform: "windows" },
   { href: "/timeline", label: "Timeline", icon: History, permission: "devices.view" },
+  { href: "/notes", label: "Notes", icon: StickyNote, permission: "devices.view" },
   { href: "/jobs", label: "Jobs", icon: Play, permission: "jobs.view" },
 ];
 const TOOLS = [
@@ -37,6 +38,7 @@ const TOOLS = [
   { href: "/processes", label: "Processes", icon: ListTree, permission: "remote.tools", capability: "processes" },
   { href: "/network", label: "Network", icon: Radar, permission: "remote.tools", capability: "processes" },
   { href: "/desktop", label: "Desktop", icon: Cast, permission: "remote.desktop", capability: "desktop" },
+  { href: "/toolbox", label: "Toolbox", icon: Wrench, permission: "scripts.run", capability: "scripts" },
 ];
 
 export function DeviceHeader() {
@@ -99,6 +101,7 @@ export function DeviceHeader() {
           {d.status === "pending" && can("devices.approve") && <Button variant="success" leftIcon={<UserCheck className="h-4 w-4" />} loading={approving} onClick={approve}>Approve device</Button>}
           {!online && can("devices.power") && <Button variant="secondary" leftIcon={<Zap className="h-4 w-4" />} onClick={wake}>Wake</Button>}
           {can("remote.terminal") && <Button variant="secondary" leftIcon={<Terminal className="h-4 w-4" />} onClick={() => router.push(`${base}/terminal`)} disabled={!online || !hasCap("terminal")}>Terminal</Button>}
+          {can("ai.use") && <Tooltip content="Open the AI copilot with this device in context"><Button variant="secondary" leftIcon={<Sparkles className="h-4 w-4 text-accent-hover" />} onClick={() => router.push(`/copilot?device=${encodeURIComponent(d.id)}`)}>Ask AI</Button></Tooltip>}
           {can("devices.manage") && <Button variant="secondary" size="icon" aria-label="Edit device" onClick={() => setEdit(true)}><Pencil className="h-4 w-4" /></Button>}
           <Menu trigger={<Button rightIcon={<ChevronDown className="h-4 w-4" />}>Actions</Button>}>
             {QUICK_ACTIONS.filter((a) => can(a.permission)).map((a) => <MenuItem key={a.id} icon={a.icon} danger={a.tone === "danger"} onSelect={() => setQuick(a.id)}>{a.label}</MenuItem>)}
@@ -126,10 +129,10 @@ export function DeviceHeader() {
           <span className="mr-1 hidden text-[10px] font-semibold uppercase tracking-wider text-fg-subtle sm:inline">Tools</span>
           {TOOLS.filter((t) => can(t.permission)).map((t) => {
             const active = rel.startsWith(t.href);
-            const available = online && (t.capability === "scripts" || t.capability === "processes" || hasCap(t.capability));
+            const available = (online || t.href === "/toolbox") && (t.capability === "scripts" || t.capability === "processes" || hasCap(t.capability));
             return (
-              <Tooltip key={t.href} content={!online ? "Device is offline" : !available ? "Not supported by this agent build" : null}>
-                <Link href={`${base}${t.href}`} aria-disabled={!available} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors focus-ring", active ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg", !available && "opacity-50")}><t.icon className="h-4 w-4" />{t.label}</Link>
+              <Tooltip key={t.href} content={t.href === "/toolbox" ? (online ? null : "Tools queue until the device reconnects") : !online ? "Device is offline" : !available ? "Not supported by this agent build" : null}>
+                <Link href={`${base}${t.href}`} aria-disabled={!available} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors focus-ring", active ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg", !available && "opacity-50")}><t.icon className={cn("h-4 w-4", t.href === "/toolbox" && "text-accent-hover")} />{t.label}</Link>
               </Tooltip>
             );
           })}

@@ -44,7 +44,7 @@ const OPTIONAL_COLUMNS: { id: string; label: string; default: boolean }[] = [
   { id: "tags", label: "Tags", default: false },
 ];
 
-export function DeviceList({ permissions }: { permissions: string[] }) {
+export function DeviceList({ permissions, headerExtra }: { permissions: string[]; headerExtra?: React.ReactNode }) {
   const router = useRouter();
   const [f, setF] = useUrlState(DEFAULTS);
   const can = (p: string) => permissions.includes("*") || permissions.includes(p) || permissions.includes(p.split(".")[0] + ".*");
@@ -105,17 +105,6 @@ export function DeviceList({ permissions }: { permissions: string[] }) {
     return c;
   })();
 
-  async function approveSelected() {
-    const pending = selectedRows.filter((d) => d.status === "pending");
-    let ok = 0;
-    for (const d of pending) {
-      try { await api.post(`devices/${d.id}/approve`); ok++; } catch (err) { toast.error(`${d.name}: ${err instanceof ApiClientError ? err.message : "failed"}`); }
-    }
-    if (ok) toast.success(`Approved ${ok} device${ok === 1 ? "" : "s"}`);
-    setSelection({});
-    list.mutate();
-  }
-
   const hasFilters = !!(f.status || f.platform || f.siteId || f.groupId || f.tag || f.q || f.health);
   const activeSite = sites?.items.find((s) => s.id === f.siteId);
   const target = { type: "device" as const, ids: selectedIds, label: `${selectedIds.length} selected device${selectedIds.length === 1 ? "" : "s"}` };
@@ -127,6 +116,7 @@ export function DeviceList({ permissions }: { permissions: string[] }) {
         description={list.data ? `${list.total.toLocaleString()} device${list.total === 1 ? "" : "s"}${activeSite ? ` at ${activeSite.name}` : ""}` : "Loading…"}
         actions={
           <>
+            {headerExtra}
             {can("scripts.run") && <Button variant="secondary" leftIcon={<FileCode2 className="h-4 w-4" />} onClick={() => router.push("/jobs/new")}>Run script</Button>}
             {can("devices.enroll") && <Button leftIcon={<Download className="h-4 w-4" />} onClick={() => router.push("/deploy")}>Deploy agent</Button>}
           </>
@@ -175,21 +165,7 @@ export function DeviceList({ permissions }: { permissions: string[] }) {
         </div>
       </div>
 
-      {selectedIds.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-accent-soft/40 px-3 py-2 text-sm animate-in">
-          <span className="font-medium">{selectedIds.length} selected</span>
-          <span className="mx-1 h-4 w-px bg-border-strong" />
-          {can("scripts.run") && <Button size="sm" variant="secondary" onClick={() => setQuick("command")}>Run command</Button>}
-          {can("scripts.run") && <Button size="sm" variant="secondary" onClick={() => router.push(`/jobs/new?devices=${selectedIds.join(",")}`)}>Run script…</Button>}
-          {can("devices.approve") && selectedRows.some((d) => d.status === "pending") && <Button size="sm" variant="success" leftIcon={<UserCheck className="h-4 w-4" />} onClick={approveSelected}>Approve {selectedRows.filter((d) => d.status === "pending").length}</Button>}
-          <Menu trigger={<Button size="sm" variant="secondary" rightIcon={<ChevronDown className="h-3.5 w-3.5" />}>More actions</Button>} align="start">
-            {QUICK_ACTIONS.filter((a) => a.id !== "command" && can(a.permission)).map((a) => <MenuItem key={a.id} icon={a.icon} danger={a.tone === "danger"} onSelect={() => setQuick(a.id)}>{a.label}</MenuItem>)}
-            <MenuSeparator />
-            <MenuItem onSelect={() => setSelection({})}>Clear selection</MenuItem>
-          </Menu>
-          <button type="button" className="ml-auto rounded p-1 text-fg-muted hover:text-fg focus-ring" onClick={() => setSelection({})} aria-label="Clear selection"><X className="h-4 w-4" /></button>
-        </div>
-      )}
+      {selectedIds.length > 0 && <DeviceBulkBar selectedIds={selectedIds} selectedRows={selectedRows} can={can} onClear={() => setSelection({})} onQuick={setQuick} onChanged={() => { setSelection({}); list.mutate(); }} />}
 
       {!list.isLoading && list.total === 0 && !hasFilters ? (
         <EmptyState icon={<Download />} title="No devices yet" description="Deploy the agent on your first machine and it will show up here within seconds." action={can("devices.enroll") ? <Button onClick={() => router.push("/deploy")} leftIcon={<Download className="h-4 w-4" />}>Deploy agent</Button> : undefined} />
@@ -214,5 +190,40 @@ export function DeviceList({ permissions }: { permissions: string[] }) {
 
       {quick && <QuickJobDialog open onOpenChange={(o) => !o && setQuick(null)} action={quick} target={target} onCreated={() => setSelection({})} />}
     </>
+  );
+}
+
+/**
+ * Bulk-action bar shared by the Table layout and the Access console: run command / script, approve pending devices,
+ * the full quick-action menu and clear. Approvals are performed here so both layouts behave identically.
+ */
+export function DeviceBulkBar({ selectedIds, selectedRows, can, onClear, onQuick, onChanged, className }: { selectedIds: string[]; selectedRows: DeviceRow[]; can: (p: string) => boolean; onClear: () => void; onQuick: (action: QuickAction) => void; onChanged: () => void; className?: string }) {
+  const router = useRouter();
+  const [approving, setApproving] = React.useState(false);
+  const pending = selectedRows.filter((d) => d.status === "pending");
+  async function approveSelected() {
+    setApproving(true);
+    let ok = 0;
+    for (const d of pending) {
+      try { await api.post(`devices/${d.id}/approve`); ok++; } catch (err) { toast.error(`${d.name}: ${err instanceof ApiClientError ? err.message : "failed"}`); }
+    }
+    setApproving(false);
+    if (ok) toast.success(`Approved ${ok} device${ok === 1 ? "" : "s"}`);
+    onChanged();
+  }
+  return (
+    <div className={cn("mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-accent-soft/40 px-3 py-2 text-sm animate-in", className)} role="toolbar" aria-label="Bulk actions">
+      <span className="font-medium">{selectedIds.length} selected</span>
+      <span className="mx-1 h-4 w-px bg-border-strong" />
+      {can("scripts.run") && <Button size="sm" variant="secondary" onClick={() => onQuick("command")}>Run command</Button>}
+      {can("scripts.run") && <Button size="sm" variant="secondary" onClick={() => router.push(`/jobs/new?devices=${selectedIds.join(",")}`)}>Run script…</Button>}
+      {can("devices.approve") && pending.length > 0 && <Button size="sm" variant="success" leftIcon={<UserCheck className="h-4 w-4" />} loading={approving} onClick={approveSelected}>Approve {pending.length}</Button>}
+      <Menu trigger={<Button size="sm" variant="secondary" rightIcon={<ChevronDown className="h-3.5 w-3.5" />}>More actions</Button>} align="start">
+        {QUICK_ACTIONS.filter((a) => a.id !== "command" && can(a.permission)).map((a) => <MenuItem key={a.id} icon={a.icon} danger={a.tone === "danger"} onSelect={() => onQuick(a.id)}>{a.label}</MenuItem>)}
+        <MenuSeparator />
+        <MenuItem onSelect={onClear}>Clear selection</MenuItem>
+      </Menu>
+      <button type="button" className="ml-auto rounded p-1 text-fg-muted hover:text-fg focus-ring" onClick={onClear} aria-label="Clear selection"><X className="h-4 w-4" /></button>
+    </div>
   );
 }

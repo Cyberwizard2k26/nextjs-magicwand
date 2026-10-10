@@ -1,6 +1,111 @@
+import { z } from "zod";
 import { endpoint, type EndpointDoc } from "../registry";
+import { DeviceTreeListResponse, DeviceTreeQuery, DeviceTreeResponse, NoteCreateBody, NotePatchBody, NoteResponse, NotesListResponse, NotesQuery } from "../../contracts/device-notes";
 
-/** device-notes endpoints - filled in by the module that owns these routes. */
-const area: EndpointDoc[] = [];
-void endpoint;
+const deviceParam = { id: "Device id (UUID)." };
+const noteParams = { ...deviceParam, noteId: "Note id (UUID)." };
+
+/** Device notes + the Access console tree (session groups, virtual groups, live CPU/memory snapshot). */
+const area: EndpointDoc[] = [
+  endpoint({
+    method: "GET",
+    path: "/api/v1/devices/tree",
+    operationId: "getDeviceTree",
+    summary: "Session-group tree with counts, or the devices of one virtual group",
+    description:
+      "Without `list`, returns the aggregate tree the Access console renders: totals by status, one row per site (plus unassigned), platforms, device types, static groups, tags, outdated agents (older than the newest agent version seen in the fleet), host-connected devices (a live terminal session exists), recently accessed devices (session or job in the last 24 hours), devices needing attention (open alerts or pending reboot) and a `live` map of the latest CPU / memory sample per online device. With `list=outdated|host_connected|recent|attention|unassigned` (devices without a site) it returns that group's devices, paginated, in the same row shape as `GET /api/v1/devices` plus `agentOutdated` and `liveSessions`.",
+    tag: "Devices",
+    permission: "devices.view",
+    query: DeviceTreeQuery,
+    response: z.union([DeviceTreeResponse, DeviceTreeListResponse]),
+    risk: "read",
+    aiHint: "Call this first to get a fleet overview (how many machines, how many online, per site/platform, which need attention) before drilling into individual devices; use list=attention or list=outdated to enumerate the devices behind a count.",
+    notes: [
+      "Scoped to the caller's organisation and, for site-scoped memberships, to their sites.",
+      "Counts exclude decommissioned devices. `live` only covers online devices with a telemetry sample in the last 15 minutes (max 500).",
+      "Standard groups (site, platform, status, group, tag) are listed with `GET /api/v1/devices` and its filters; only the virtual groups need `list=`.",
+    ],
+    responseExample: {
+      totals: { all: 49, online: 1, offline: 48, pending: 0, maintenance: 0 },
+      sites: [{ id: "c96862c7-…", name: "Main site", total: 12, online: 1, openAlerts: 2 }],
+      unassigned: { total: 37, online: 0 },
+      platforms: [{ platform: "windows", total: 30, online: 0 }, { platform: "linux", total: 19, online: 1 }],
+      outdated: { total: 3, newestAgentVersion: "1.4.2", versions: [{ version: "1.4.2", count: 10 }, { version: "1.3.0", count: 3 }] },
+      hostConnected: { total: 1, deviceIds: ["15997031-…"] },
+      recent: { total: 4 },
+      attention: { total: 6, openAlerts: 5, pendingReboot: 1 },
+      live: { "15997031-…": { cpuPercent: 7, memPercent: 41, ts: "2026-10-10T00:21:40.718Z" } },
+    },
+  }),
+  endpoint({
+    method: "GET",
+    path: "/api/v1/devices/{id}/notes",
+    operationId: "listDeviceNotes",
+    summary: "List the notes on a device",
+    tag: "Device notes",
+    permission: "devices.view",
+    params: deviceParam,
+    query: NotesQuery,
+    response: NotesListResponse,
+    risk: "read",
+    aiHint: "Read these before troubleshooting a machine: pinned notes hold the quirks, warranty details and contacts technicians recorded for it.",
+    notes: ["Pinned notes first, then newest first.", "`pinned=true` returns only pinned notes."],
+  }),
+  endpoint({
+    method: "POST",
+    path: "/api/v1/devices/{id}/notes",
+    operationId: "createDeviceNote",
+    summary: "Add a note to a device",
+    tag: "Device notes",
+    permission: "devices.manage",
+    params: deviceParam,
+    body: NoteCreateBody,
+    response: NoteResponse,
+    risk: "write",
+    aiHint: "Record findings, workarounds or hand-off context on a device after helping its user; set pinned=true for facts every technician should see first.",
+    bodyExample: { body: "Reception PC: printer is on 192.168.1.50, user prefers calls before remote sessions.", pinned: true },
+    notes: ["Audited as `device.note.created`; publishes `device.note.created` on the realtime bus."],
+  }),
+  endpoint({
+    method: "GET",
+    path: "/api/v1/devices/{id}/notes/{noteId}",
+    operationId: "getDeviceNote",
+    summary: "Fetch one note",
+    tag: "Device notes",
+    permission: "devices.view",
+    params: noteParams,
+    response: NoteResponse,
+    risk: "read",
+    aiHint: "Fetch a single note by id when you only have its id (for example from an audit entry).",
+  }),
+  endpoint({
+    method: "PATCH",
+    path: "/api/v1/devices/{id}/notes/{noteId}",
+    operationId: "updateDeviceNote",
+    summary: "Edit or pin / unpin a note",
+    tag: "Device notes",
+    permission: "devices.manage",
+    params: noteParams,
+    body: NotePatchBody,
+    response: NoteResponse,
+    risk: "write",
+    aiHint: "Pin a note that has become important or correct its text; send only the fields that change.",
+    bodyExample: { pinned: true },
+    notes: ["At least one of `body` or `pinned` is required.", "Audited as `device.note.updated`."],
+  }),
+  endpoint({
+    method: "DELETE",
+    path: "/api/v1/devices/{id}/notes/{noteId}",
+    operationId: "deleteDeviceNote",
+    summary: "Delete a note",
+    tag: "Device notes",
+    permission: "devices.manage",
+    params: noteParams,
+    response: z.object({ ok: z.literal(true), id: z.string() }),
+    risk: "write",
+    aiHint: "Remove a note that is obsolete or was added by mistake; prefer editing over deleting when the history matters.",
+    notes: ["Audited as `device.note.deleted`."],
+  }),
+];
+
 export default area;

@@ -1,6 +1,28 @@
+import { z } from "zod";
 import { endpoint, type EndpointDoc } from "../registry";
+import { CustomFieldCreate, CustomFieldListQuery, CustomFieldPatch, CustomFieldSchema, IpAllowlistCreate, IpAllowlistEntry, OrgPatch, OrgResponse, SsoProviderSchema } from "../../contracts/org";
 
-/** org endpoints - filled in by the module that owns these routes. */
-const area: EndpointDoc[] = [];
-void endpoint;
+const area: EndpointDoc[] = [
+  endpoint({
+    method: "GET", path: "/api/v1/org", operationId: "getOrganization", tag: "Organization", permission: "org.view", risk: "read",
+    summary: "Get the active organization", response: OrgResponse,
+    notes: ["`settings` holds timezone, locale, defaultSiteId, dataRetentionDays, agent update channel and a `security` object (sessionHours, requireMfa, ipAllowlistEnabled, ...).", "`branding` holds productName, logoUrl, accentColor and support contact details.", "`counts` summarises sites, groups, devices, members and pending invites."],
+    aiHint: "Use to read organization-wide defaults (timezone, default site, security policy) before creating sites, scheduling work or answering questions about the tenant.",
+  }),
+  endpoint({
+    method: "PATCH", path: "/api/v1/org", operationId: "updateOrganization", tag: "Organization", permission: "org.manage", risk: "write",
+    summary: "Update organization name, settings or branding", body: OrgPatch, response: OrgResponse,
+    bodyExample: { settings: { timezone: "Europe/Amsterdam", security: { requireMfa: true, sessionHours: 12 } }, branding: { productName: "Acme Console", accentColor: "#7c6cff" } },
+    notes: ["Partial merge: only the keys you send change.", "`defaultSiteId` must belong to the organization.", "Emits `org.updated`."],
+    aiHint: "Use to change tenant-wide policy such as requiring MFA, session lifetime, data retention or white-label branding.",
+  }),
+  endpoint({ method: "GET", path: "/api/v1/org/ip-allowlist", operationId: "listIpAllowlist", tag: "Organization", permission: "org.view", risk: "read", summary: "List IP allowlist entries", response: z.object({ items: z.array(IpAllowlistEntry) }), notes: ["Enforced only while `settings.security.ipAllowlistEnabled` is true."], aiHint: "Use to see which networks may sign in or call the API." }),
+  endpoint({ method: "POST", path: "/api/v1/org/ip-allowlist", operationId: "addIpAllowlist", tag: "Organization", permission: "org.manage", risk: "write", summary: "Add an IP or CIDR range", body: IpAllowlistCreate, response: IpAllowlistEntry, bodyExample: { cidr: "203.0.113.0/24", note: "Head office", appliesTo: "all" }, notes: ["Accepts IPv4/IPv6 addresses (normalised to /32 or /128) and CIDR ranges.", "Emits `org.ip_allowlist.updated`."], aiHint: "Use to allow a new office or VPN egress range; make sure the operator's own address is included before enabling enforcement." }),
+  endpoint({ method: "DELETE", path: "/api/v1/org/ip-allowlist/{id}", operationId: "removeIpAllowlist", tag: "Organization", permission: "org.manage", risk: "dangerous", summary: "Remove an allowlist entry", params: { id: "Entry id" }, response: z.object({ ok: z.literal(true) }), notes: ["Removing the range you are connecting from while enforcement is on locks you out."], aiHint: "Use to drop an obsolete office range; warn if it is the only entry while enforcement is enabled." }),
+  endpoint({ method: "GET", path: "/api/v1/org/sso", operationId: "listSsoProviders", tag: "Organization", permission: "org.view", risk: "read", summary: "List single sign-on providers", response: z.object({ items: z.array(SsoProviderSchema) }), notes: ["Read-only; client secrets are never returned (`hasSecret` only)."], aiHint: "Use to tell whether SSO is configured and for which email domains." }),
+  endpoint({ method: "GET", path: "/api/v1/org/custom-fields", operationId: "listCustomFields", tag: "Organization", permission: "org.view", risk: "read", summary: "List custom field definitions", query: CustomFieldListQuery, response: z.object({ items: z.array(CustomFieldSchema) }), aiHint: "Use to learn which custom fields exist for devices, sites, tickets or contacts before reading or writing `customFields` on those records." }),
+  endpoint({ method: "POST", path: "/api/v1/org/custom-fields", operationId: "createCustomField", tag: "Organization", permission: "org.manage", risk: "write", summary: "Define a custom field", body: CustomFieldCreate, response: CustomFieldSchema, bodyExample: { entity: "device", key: "asset_tag", label: "Asset tag", type: "text", required: false }, notes: ["`key` is unique per entity and becomes the property name inside `customFields`.", "`select`/`multiselect` need `options`.", "`sourcePath` can auto-populate a device field from inventory (e.g. `hardware.bios.version`).", "Emits `custom_field.created`."], aiHint: "Use to add structured metadata (asset tag, cost centre, warranty vendor) that technicians fill in per device." }),
+  endpoint({ method: "PATCH", path: "/api/v1/org/custom-fields/{id}", operationId: "updateCustomField", tag: "Organization", permission: "org.manage", risk: "write", summary: "Edit a custom field definition", params: { id: "Field id" }, body: CustomFieldPatch, response: CustomFieldSchema, notes: ["`entity` and `key` are immutable; create a new field to rename a key."], aiHint: "Use to relabel a field, add select options or mark it required." }),
+  endpoint({ method: "DELETE", path: "/api/v1/org/custom-fields/{id}", operationId: "deleteCustomField", tag: "Organization", permission: "org.manage", risk: "dangerous", summary: "Delete a custom field definition", params: { id: "Field id" }, response: z.object({ ok: z.literal(true) }), notes: ["Values already stored on records are left in place but no longer shown."], aiHint: "Use to retire a field nobody fills in." }),
+];
 export default area;
