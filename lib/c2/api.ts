@@ -185,12 +185,15 @@ export async function handleC2(req: Request, pathname: string): Promise<Response
       const user = await auth.verifyCredentials(username as string, password as string);
       if (!user) return err(401, "invalid credentials");
       let secret = await auth.getTotpSecret(username as string);
-      if (!secret && config.totpSecret) { secret = config.totpSecret; await auth.setTotpSecret(username as string, secret); }
-      const ticket = auth.issueTotpTicket(username as string);
-      if (!secret) {
-        secret = totp.generateSecret();
+      if (!secret && config.totpSecret) {
+        // enforcement mode: the pre-seeded secret applies to every operator
+        secret = config.totpSecret;
         await auth.setTotpSecret(username as string, secret);
-        return json({ totp_setup: true, ticket, secret, otpauth: totp.otpauthUri(secret, username as string) });
+      }
+      if (secret && config.totpSecret && secret !== config.totpSecret) {
+        // env rotation is authoritative: stored secret follows the configured one
+        secret = config.totpSecret;
+        await auth.setTotpSecret(username as string, secret);
       }
       return json({ totp_required: true, ticket });
     }
