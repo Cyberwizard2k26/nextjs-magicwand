@@ -462,3 +462,47 @@ label.field2 > span { display: block; font-size: 12px; color: var(--text-2); mar
 }
 #task-args:focus { border-color: var(--accent-dim); }
 
+
+/* ── TOTP login step ───────────────────────────────────────────────── */
+.totp-secret {
+  text-align: left;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.05);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.totp-secret-head {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.totp-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.totp-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#totp-secret-value {
+  flex: 1;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+  background: #05070b;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  word-break: break-all;
+}
+#totp-block { text-align: left; margin-bottom: 14px; }

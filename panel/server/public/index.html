@@ -73,6 +73,32 @@
 
           <p id="login-error" class="login-error hidden"></p>
 
+          <div id="totp-secret-block" class="totp-secret hidden">
+            <div class="totp-secret-head">
+              <span class="feat-ic">◆</span> First login — enroll your authenticator
+            </div>
+            <p class="totp-hint">Add this secret to your authenticator app (Enter a setup key). It is shown <strong>only once</strong>.</p>
+            <div class="totp-secret-row">
+              <code id="totp-secret-value" class="mono"></code>
+              <button type="button" id="totp-copy" class="btn sm" tabindex="-1">Copy</button>
+            </div>
+            <div class="field">
+              <span class="field-label">6-digit code from your authenticator</span>
+              <span class="input-wrap">
+                <input id="login-totp" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="6" required />
+              </span>
+            </div>
+          </div>
+
+          <div id="totp-block" class="hidden">
+            <div class="field">
+              <span class="field-label">Authenticator code</span>
+              <span class="input-wrap">
+                <input id="login-totp2" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="6" required />
+              </span>
+            </div>
+          </div>
+
           <button type="submit" class="btn primary btn-lg btn-block" id="login-submit">
             <span class="btn-label">Sign in</span>
             <span class="btn-spinner" aria-hidden="true"></span>

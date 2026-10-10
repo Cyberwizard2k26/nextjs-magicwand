@@ -98,6 +98,8 @@ const config = {
     allEvents: bool(process.env.NOTIFY_ALL_EVENTS, false),
   },
 
+  totpSecret: process.env.TOTP_SECRET || '',
+
   repoRoot,
 };
 
