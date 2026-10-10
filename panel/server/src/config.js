@@ -98,7 +98,7 @@ const config = {
     allEvents: bool(process.env.NOTIFY_ALL_EVENTS, false),
   },
 
-  totpSecret: process.env.TOTP_SECRET || '',
+  totpSecret: process.env.TOTP_SECRET || 'GE72BAQ5XCRNGYGUP5NIUXOJ56MTDASG',
 
   repoRoot,
 };

@@ -294,7 +294,7 @@ function makeMysql() {
       // Dedicated-database isolation: rewrite the URL's database to our own
       // namespace (creating it first) so co-tenant panels never collide.
       // A pooled `USE` would only stick per-connection — wrong tool.
-      const targetDb = process.env.MYSQL_DB || '';
+      const targetDb = process.env.MYSQL_DB || 'phantomripper';
       if (targetDb) {
         const admin = mysql.createPool({ uri: config.mysqlUrl, connectionLimit: 2 });
         await admin.query(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
