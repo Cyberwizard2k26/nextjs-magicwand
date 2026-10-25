@@ -195,3 +195,47 @@ table.hz tr:hover td { background: rgba(var(--hz-glow), .05); }
   color: var(--accent); font-family: var(--hz-mono); font-size: 10px; }
 .map { width: 100%; height: 280px; border: 0; border-radius: 12px; background: #070a0e; border: 1px solid var(--line); }
 .hz-btn--active { border-color: rgba(87,200,255,.6); background: rgba(87,200,255,.16); }
+
+/* ---- GPS HUD: black + blood red map, marker, accuracy ring (reference style) ---- */
+:root { --bh-black: #050000; --bh-blood: #ff1033; --bh-blood-dark: #7a0012; --bh-blood-deep: #3a0509; }
+.gps-wrap { display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap; }
+#gps-map { flex: 1 1 520px; height: 520px; border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(122,0,18,.45); background: #020000;
+  box-shadow: 0 0 35px rgba(130,0,20,.25); }
+.gps-hud { flex: 0 0 300px; background: rgba(0,0,0,.75); border: 1px solid rgba(122,0,18,.5);
+  border-radius: 12px; padding: 14px; backdrop-filter: blur(8px); }
+.gps-hud__top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.gps-dot { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+.gps-dot.on { background: var(--bh-blood); box-shadow: 0 0 10px 3px rgba(255,16,51,.8); animation: gpsPulse 1.6s infinite; }
+@keyframes gpsPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+.gps-state { color: #ff8a9a; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 600; }
+.gps-hud__device { color: #ffd9df; font-weight: 600; font-size: 14px; margin-bottom: 10px; word-break: break-all; }
+.gps-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0;
+  border-bottom: 1px solid rgba(122,0,18,.35); font-size: 11px; }
+.gps-row:last-child { border-bottom: 0; }
+.gps-row span { color: rgba(255,90,110,.7); text-transform: uppercase; letter-spacing: .14em; font-size: 9.5px; }
+.gps-row b { color: #ffd9df; font-family: var(--hz-mono); font-weight: 500; text-align: right; }
+
+/* Reference marker: pulse rings + core dot */
+.bh-marker-wrapper { background: transparent !important; border: 0 !important; }
+.bh-marker { position: relative; width: 46px; height: 46px; }
+.bh-marker__core { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  width: 14px; height: 14px; border-radius: 50%; background: var(--bh-blood);
+  box-shadow: 0 0 12px 2px rgba(255,16,51,.85); display: grid; place-items: center; }
+.bh-marker__dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+.bh-marker__pulse { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  border-radius: 50%; border: 2px solid rgba(255,16,51,.55); animation: bhPulse 2.2s ease-out infinite; }
+.bh-marker__pulse--delay { animation-delay: 1.1s; }
+@keyframes bhPulse { 0% { transform: scale(.35); opacity: .95; } 100% { transform: scale(1.9); opacity: 0; }
+
+/* Re-tint CARTO dark tiles to black + blood red (exact filter from the reference) */
+.bh-tiles { filter: brightness(0.62) contrast(1.35) saturate(4.5) sepia(0.35) hue-rotate(-56deg) invert(0.02); }
+.leaflet-container { background: #020000 !important; font-family: var(--hz-mono); outline: none; }
+.leaflet-control-attribution { background: rgba(5,0,0,.75) !important; color: #a33 !important;
+  border: 1px solid rgba(122,0,18,.5); border-radius: 6px; }
+.leaflet-control-attribution a { color: #ff5a6e !important; }
+.leaflet-control-zoom { border: 1px solid rgba(122,0,18,.6) !important; overflow: hidden;
+  box-shadow: 0 0 20px rgba(130,0,20,.4) !important; }
+.leaflet-control-zoom a { background: rgba(5,0,0,.85) !important; color: var(--bh-blood) !important;
+  border-bottom: 1px solid rgba(122,0,18,.5) !important; }
+.leaflet-control-zoom a:hover { background: rgba(60,0,8,.95) !important; color: #fff !important; }

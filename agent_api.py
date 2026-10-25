@@ -192,10 +192,18 @@ def issue_session(username: str) -> str:
     return f"{username}.{expiry}.{sig}"
 
 
+# Sessions are only valid if issued AFTER this process started. A deploy or
+# restart invalidates every earlier session and forces a fresh login.
+# (integer seconds, to match the truncated expiry embedded in the token)
+PROCESS_STARTED = int(time.time())
+
+
 def session_valid(token: str) -> bool:
     try:
         username, expiry, sig = token.rsplit(".", 2)
         if int(expiry) < time.time():
+            return False
+        if int(expiry) - SESSION_TTL < PROCESS_STARTED:
             return False
         want = hmac.new(SESSION_KEY, f"{username}.{expiry}".encode(), hashlib.sha256).hexdigest()[:40]
         return hmac.compare_digest(sig, want)
@@ -671,8 +679,9 @@ async def login_submit(request: Request):
     with LOGIN_LOCK:
         LOGIN_ATTEMPTS.pop(ip, None)
     resp = RedirectResponse("/admin", status_code=302)
+    # Browser-session cookie: no max-age, so it also dies when the browser closes.
     resp.set_cookie(COOKIE_NAME, issue_session(ADMIN_USERNAME), httponly=True,
-                    samesite="lax", max_age=SESSION_TTL)
+                    samesite="lax")
     return resp
 
 
@@ -723,11 +732,22 @@ async def admin_section(request: Request, slug: str):
 
     agents = _agents_view()
     columns, rows = _section_rows(slug, agents)
+    fixes = []
+    for a in agents:
+        for f in a["locations"]:
+            fixes.append({
+                "device": a["id"], "lat": f.get("lat"), "lon": f.get("lon"),
+                "accuracy": f.get("accuracy"), "altitude": f.get("altitude"),
+                "speed": f.get("speed"), "heading": f.get("heading"),
+                "ts": f.get("received_at") or f.get("ts") or 0,
+            })
+    fixes.sort(key=lambda x: x["ts"] or 0)
     return templates.TemplateResponse(request, "section.html", {
         "title": section["label"], "app_name": "HawkZero", "user": user,
         "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": slug,
         "section": section, "agents": agents, "columns": columns, "rows": rows,
         "actions": _actions_for(slug), "task_types": TASK_TYPES,
+        "fixes_json": json.dumps(fixes),
         "map_src": _map_src(agents), "record_count": len(rows),
         "flash": flash, "path": path, "empty": None})
 
