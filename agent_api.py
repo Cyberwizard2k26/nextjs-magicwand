@@ -243,10 +243,34 @@ def _agents_view() -> list[dict]:
             "done": sum(1 for t in a["tasks"] if t["state"] == "done"),
             "results": len(a["results"]),
             "locations": a.get("locations") or [],
+            "last_frame": a.get("last_frame"),
             "seen": time.strftime("%H:%M:%S", time.localtime(seen)) if seen else "never",
+            "seen_ts": seen or 0,
             "online": bool(seen and (now - seen) < 90),
         })
     return out
+
+
+def _latest_fix(agents: list[dict]) -> dict | None:
+    best = None
+    for a in agents:
+        for f in a["locations"]:
+            if not best or f.get("received_at", 0) > best.get("received_at", 0):
+                best = f
+    return best
+
+
+def _map_src(agents: list[dict]) -> str | None:
+    f = _latest_fix(agents)
+    if not f:
+        return None
+    lat, lon = f.get("lat"), f.get("lon")
+    if lat is None or lon is None:
+        return None
+    d = 0.05
+    return (f"https://www.openstreetmap.org/export/embed.html?bbox="
+            f"{lon - d}%2C{lat - d}%2C{lon + d}%2C{lat + d}"
+            f"&layer=mapnik&marker={lat}%2C{lon}")
 
 
 def _stats(agents: list[dict]) -> dict:
@@ -535,6 +559,22 @@ async def root(request: Request):
     return RedirectResponse("/admin" if _user_from_request(request) else "/login", status_code=302)
 
 
+@router.get("/api/agent/{agent_id}/status")
+async def agent_status(request: Request, agent_id: str,
+                       x_agent_token: str | None = Header(default=None)):
+    """Lightweight status for the shell UI: last frame + last beacon."""
+    _auth_ui(request, x_agent_token)
+    a = store.get(agent_id)
+    seen = a.get("last_seen")
+    return {
+        "id": a["id"],
+        "last_seen": seen,
+        "online": bool(seen and (time.time() - seen) < 90),
+        "last_frame": a.get("last_frame"),
+        "capabilities": (a.get("info") or {}).get("capabilities", []),
+    }
+
+
 @router.get("/api/agent/{agent_id}/screen/stream")
 async def screen_stream(request: Request, agent_id: str, count: int = 0,
                         x_agent_token: str | None = Header(default=None)):
@@ -649,10 +689,20 @@ async def admin_dashboard(request: Request):
     if not user:
         return RedirectResponse("/login", status_code=302)
     agents = _agents_view()
+    activity = []
+    for a in agents:
+        for r in a["results"][-8:]:
+            activity.append({
+                "device": a["id"],
+                "type": r.get("type", ""),
+                "status": (r.get("result") or {}).get("status", ""),
+                "at": time.strftime("%m-%d %H:%M", time.localtime(r.get("received_at", 0))),
+            })
+    activity = activity[-12:]
     return templates.TemplateResponse(request, "dashboard.html", {
         "title": "Dashboard", "app_name": "HawkZero", "user": user,
         "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": "dashboard",
-        "agents": agents, "stats": _stats(agents)})
+        "agents": agents, "stats": _stats(agents), "activity": activity})
 
 
 @router.get("/admin/{slug}", response_class=HTMLResponse)
@@ -678,6 +728,7 @@ async def admin_section(request: Request, slug: str):
         "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": slug,
         "section": section, "agents": agents, "columns": columns, "rows": rows,
         "actions": _actions_for(slug), "task_types": TASK_TYPES,
+        "map_src": _map_src(agents), "record_count": len(rows),
         "flash": flash, "path": path, "empty": None})
 
 

