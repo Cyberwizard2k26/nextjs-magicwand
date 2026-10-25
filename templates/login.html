@@ -1,0 +1,51 @@
+{% include 'partials/head.html' %}
+<main class="login-wrap hz-cyan">
+  <div class="login-card">
+
+    {# HawkZero banner used as the login header #}
+    <div class="hz-banner hz-cyan" style="--hz-img:url('/img/buttons/hawk.png')" role="img" aria-label="HawkZero">
+      <span class="hz-banner__label"><span class="hz-banner__text">HawkZero</span><span class="hz-banner__sub">Admin Access</span></span>
+    </div>
+
+    <section class="login-panel">
+      <h1>Operator sign-in</h1>
+      <p class="sub muted">Authenticate to reach the command panel.</p>
+
+      {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+
+      <form method="post" action="/login" autocomplete="on" novalidate>
+        <div class="form-row">
+          <label class="hz-label" for="username">Callsign</label>
+          <div class="hz-field">
+            <input class="hz-input" id="username" name="username" type="text" value="{{ username }}"
+                   placeholder="username" autocomplete="username" required autofocus>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="hz-label" for="password">Passkey</label>
+          <div class="hz-field">
+            <input class="hz-input" id="password" name="password" type="password"
+                   placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="hz-label" for="totp">Authenticator code</label>
+          <div class="hz-field">
+            <input class="hz-input" id="totp" name="totp" type="text" inputmode="numeric"
+                   pattern="[0-9]*" maxlength="6" placeholder="6-digit code"
+                   autocomplete="one-time-code" required>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="hz-btn hz-btn--lg hz-cyan" type="submit" data-loading>
+            <span class="hz-btn__icon">&#9654;</span> Authenticate
+          </button>
+          <button class="hz-btn hz-btn--ghost hz-btn--sm hz-violet" type="reset">Clear</button>
+        </div>
+      </form>
+    </section>
+
+    <p class="login-footer muted">HawkZero &middot; secured terminal</p>
+  </div>
+</main>
+{% include 'partials/foot.html' %}

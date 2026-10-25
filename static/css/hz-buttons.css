@@ -1,0 +1,289 @@
+/* =====================================================================
+   HawkZero HUD button system
+   ---------------------------------------------------------------------
+   1. .hz-banner  — the 15 supplied banner PNGs used as section buttons,
+                    with the section label rendered on the empty panel.
+   2. .hz-btn     — pure-CSS button that mirrors the banner look (chamfered
+                    steel plate, neon edge, glow) for every other button.
+   Themes: gold | violet | cyan   (matches the three banner colourways)
+   ===================================================================== */
+
+:root {
+  --hz-font-display: 'Orbitron', 'Rajdhani', system-ui, sans-serif;
+  --hz-font-ui: 'Rajdhani', system-ui, sans-serif;
+
+  --hz-steel-1: #2b323c;
+  --hz-steel-2: #161b22;
+  --hz-steel-3: #0b0f15;
+  --hz-text: #e8f0ff;
+
+  /* default theme = cyan */
+  --hz-c:  #19a7ff;
+  --hz-c2: #7fdcff;
+  --hz-glow: 25, 167, 255;
+}
+.hz-gold,   [data-theme="gold"]   { --hz-c: #ffb020; --hz-c2: #ffd977; --hz-glow: 255, 176, 32; }
+.hz-violet, [data-theme="violet"] { --hz-c: #8a5cff; --hz-c2: #c9b3ff; --hz-glow: 138, 92, 255; }
+.hz-cyan,   [data-theme="cyan"]   { --hz-c: #19a7ff; --hz-c2: #7fdcff; --hz-glow: 25, 167, 255; }
+
+/* ---------------------------------------------------------------------
+   1. BANNER IMAGE BUTTONS
+   Usage:
+   <a class="hz-banner hz-gold" href="/admin/recon"
+      style="--hz-img:url('/img/buttons/recon.png')">
+     <span class="hz-banner__label">Recon</span>
+   </a>
+   All banners are 960x240 (4:1). The empty panel area starts ~36% from
+   the left edge and ends ~9% from the right, so the label is padded there.
+   --------------------------------------------------------------------- */
+.hz-banner {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 1;
+  container-type: inline-size;
+  background: var(--hz-img) center / 100% 100% no-repeat;
+  text-decoration: none;
+  color: var(--hz-text);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  outline: none;
+  /* soft edge fade so the PNG's dark backing blends into the sidebar */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%),
+                      linear-gradient(0deg, transparent 0, #000 10%, #000 90%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%),
+              linear-gradient(0deg, transparent 0, #000 10%, #000 90%, transparent 100%);
+  mask-composite: intersect;
+  opacity: .92;
+  transition: opacity .2s ease, filter .2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.hz-banner__label {
+  position: absolute;
+  inset: 0;
+  padding-left: 36%;
+  padding-right: 7%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  font-family: var(--hz-font-display);
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  /* scales with the banner width (container query units) */
+  font-size: clamp(10px, 4.9cqw, 28px);
+  line-height: 1.1;
+  color: #f4f8ff;
+  text-shadow: 0 2px 2px rgba(0,0,0,.9);
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hz-banner__label > span:first-child,
+.hz-banner__label { max-width: 100%; }
+.hz-banner__text { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.hz-banner__sub {
+  display: block;
+  margin-top: .25em;
+  font-family: var(--hz-font-ui);
+  font-weight: 500;
+  font-size: .5em;
+  letter-spacing: .18em;
+  color: var(--hz-c2);
+}
+.hz-banner:hover,
+.hz-banner:focus-visible { opacity: 1; filter: brightness(1.08); }
+.hz-banner:active { filter: brightness(1.15); }
+.hz-banner.is-active { opacity: 1; }
+.hz-banner.is-active .hz-banner__text::after {
+  content: ' ▸';
+  color: var(--hz-c2);
+}
+.hz-banner--compact .hz-banner__label { letter-spacing: .1em; }
+
+
+/* ---------------------------------------------------------------------
+   2. CSS-ONLY BUTTONS  (.hz-btn)
+   Same language as the banners: dark brushed plate, neon edge, chevron
+   notch on the left, arrow tip on the right, glow on hover.
+   Usage:
+   <button class="hz-btn hz-gold">Save</button>
+   <a class="hz-btn hz-violet hz-btn--ghost" href="#">Cancel</a>
+   Modifiers: --sm --lg --block --ghost --danger  |  [disabled]
+   --------------------------------------------------------------------- */
+.hz-btn {
+  --hz-notch: 11px;      /* left chevron depth */
+  --hz-tip: 18px;        /* right arrow depth  */
+  --hz-pad-y: .72em;
+  --hz-pad-x: 1.9em;
+
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55em;
+  min-height: 2.9em;
+  padding: var(--hz-pad-y) calc(var(--hz-pad-x) + var(--hz-tip) * .45) var(--hz-pad-y) calc(var(--hz-pad-x) + var(--hz-notch) * .6);
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: #f2f7ff;
+  font-family: var(--hz-font-display);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  text-shadow: 0 1px 1px rgba(0,0,0,.9);
+  transition: filter .2s ease, transform .15s ease, color .2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* edge layer */
+.hz-btn::before,
+.hz-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--hz-tip)) 0,
+    100% 50%,
+    calc(100% - var(--hz-tip)) 100%,
+    0 100%,
+    var(--hz-notch) 50%
+  );
+  background:
+    linear-gradient(90deg, var(--hz-c2) 0%, var(--hz-c) 45%, var(--hz-c2) 100%);
+  transition: background .2s ease;
+}
+/* plate layer */
+.hz-btn::after {
+  z-index: -1;
+  inset: 2px;
+  --hz-notch: 10px;
+  --hz-tip: 17px;
+  background:
+    /* neon haze on the plate */
+    radial-gradient(120% 140% at 50% 120%, rgba(var(--hz-glow), .22), transparent 60%),
+    /* brushed steel lines */
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--hz-steel-1) 0%, var(--hz-steel-2) 55%, var(--hz-steel-3) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+.hz-btn:hover,
+.hz-btn:focus-visible {
+  color: #fff;
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+.hz-btn:focus-visible::before {
+  background: var(--hz-c2);
+}
+.hz-btn:active {
+  transform: translateY(1px);
+  filter: brightness(1.2);
+}
+
+/* icon slot */
+.hz-btn__icon { font-size: 1.15em; line-height: 0; color: var(--hz-c2); }
+
+/* ghost / outline */
+.hz-btn--ghost { color: var(--hz-c2); }
+.hz-btn--ghost::after {
+  background:
+    radial-gradient(120% 140% at 50% 120%, rgba(var(--hz-glow), .18), transparent 60%),
+    linear-gradient(180deg, rgba(20,26,34,.85), rgba(8,11,16,.92));
+}
+.hz-btn--ghost::before { opacity: .75; }
+
+/* danger: red edge, keeps plate */
+.hz-btn--danger { --hz-c: #ff3b5c; --hz-c2: #ff8aa0; --hz-glow: 255, 59, 92; }
+
+/* sizes */
+.hz-btn--sm { font-size: .68rem; min-height: 2.4em; --hz-pad-x: 1.3em; --hz-tip: 13px; --hz-notch: 8px; }
+.hz-btn--sm::after { --hz-tip: 12px; --hz-notch: 7px; }
+.hz-btn--lg { font-size: 1rem; min-height: 3.3em; --hz-pad-x: 2.4em; --hz-tip: 22px; --hz-notch: 13px; }
+.hz-btn--lg::after { --hz-tip: 21px; --hz-notch: 12px; }
+.hz-btn--block { display: flex; width: 100%; }
+
+/* disabled */
+.hz-btn[disabled],
+.hz-btn.is-disabled {
+  pointer-events: none;
+  opacity: .45;
+  filter: grayscale(.6);
+}
+
+/* loading */
+.hz-btn.is-loading { color: transparent; text-shadow: none; }
+.hz-btn.is-loading > .hz-btn__spin {
+  position: absolute; inset: 0; margin: auto;
+  width: 1.1em; height: 1.1em;
+  border: 2px solid rgba(var(--hz-glow), .3);
+  border-top-color: var(--hz-c2);
+  border-radius: 50%;
+  animation: hz-spin .8s linear infinite;
+}
+@keyframes hz-spin { to { transform: rotate(360deg); } }
+
+/* button group — tight row that reads as one HUD strip */
+.hz-btn-group { display: inline-flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+
+/* ---------------------------------------------------------------------
+   3. INPUTS that match the buttons (same plate + edge)
+   --------------------------------------------------------------------- */
+.hz-field { position: relative; isolation: isolate; display: block; }
+.hz-field::before,
+.hz-field::after {
+  content: ''; position: absolute; inset: 0; z-index: -2;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 8px 50%);
+  background: linear-gradient(90deg, rgba(var(--hz-glow), .55), rgba(var(--hz-glow), .25) 60%, rgba(var(--hz-glow), .55));
+  transition: background .2s ease;
+}
+.hz-field::after {
+  z-index: -1; inset: 1.5px;
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%, 7px 50%);
+  background: linear-gradient(180deg, #0f141b, #0a0e13);
+}
+.hz-field:focus-within::before {
+  background: linear-gradient(90deg, var(--hz-c2), var(--hz-c) 50%, var(--hz-c2));
+}
+.hz-input {
+  width: 100%;
+  background: transparent;
+  border: 0; outline: none;
+  color: var(--hz-text);
+  font-family: var(--hz-font-ui);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  padding: .8em 1.6em .8em 1.1em;
+}
+.hz-input::placeholder { color: rgba(232,240,255,.35); letter-spacing: .1em; text-transform: uppercase; font-size: .85em; }
+.hz-input:-webkit-autofill { -webkit-text-fill-color: var(--hz-text); box-shadow: 0 0 0 100px #0c1117 inset; }
+
+.hz-label {
+  display: block;
+  margin: 0 0 .35rem .6rem;
+  font-family: var(--hz-font-display);
+  font-size: .64rem;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--hz-c2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hz-banner, .hz-btn { transition: none; }
+}

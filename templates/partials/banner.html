@@ -1,0 +1,11 @@
+{# Renders one supplied banner image as a section button.
+   Ported from views/partials/banner.ejs. #}
+{% macro banner(s, active, compact=false, href=None) -%}
+<a class="hz-banner hz-{{ s.theme }}{% if compact %} hz-banner--compact{% endif %}{% if active == s.slug %} is-active{% endif %}"
+   href="{{ href or ('/admin' if s.slug == 'dashboard' else '/admin/' ~ s.slug) }}"
+   style="--hz-img:url('/img/buttons/{{ s.image }}')"
+   {% if active == s.slug %}aria-current="page"{% endif %}
+   title="{{ s.label }}">
+  <span class="hz-banner__label"><span class="hz-banner__text">{{ s.label }}</span></span>
+</a>
+{%- endmacro %}

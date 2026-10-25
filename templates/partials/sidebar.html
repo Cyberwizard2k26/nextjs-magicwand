@@ -1,0 +1,16 @@
+{% from 'partials/banner.html' import banner %}
+<aside class="sidebar">
+  <div class="brand">
+    {{ banner(sections_by_slug['dashboard'], active, compact=true) }}
+  </div>
+  <nav class="nav" aria-label="Sections">
+    {% for s in sections if s.slug != 'dashboard' %}
+      {{ banner(s, active, compact=true) }}
+    {% endfor %}
+  </nav>
+  <div class="foot">
+    <form method="post" action="/logout">
+      <button class="hz-btn hz-btn--block hz-btn--ghost hz-btn--danger" type="submit">Sign out</button>
+    </form>
+  </div>
+</aside>
