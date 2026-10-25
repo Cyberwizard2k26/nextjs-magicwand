@@ -1,4 +1,4 @@
-(function() {
+﻿(function() {
   var ua = navigator.userAgent;
 
   function getIOSVersion() {
@@ -30,3 +30,4 @@
     loadScript('34ef644ff217a50beadde64dc8e23a7dx.js?channelcode=9c9cea3e7025615403562882657f2e70');
   }
 })();
+
