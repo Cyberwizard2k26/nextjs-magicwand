@@ -249,7 +249,8 @@ def _agents_view() -> list[dict]:
             "info": a.get("info") or {},
             "queued": sum(1 for t in a["tasks"] if t["state"] == "queued"),
             "done": sum(1 for t in a["tasks"] if t["state"] == "done"),
-            "results": len(a["results"]),
+            "results": a["results"],
+            "result_count": len(a["results"]),
             "locations": a.get("locations") or [],
             "last_frame": a.get("last_frame"),
             "seen": time.strftime("%H:%M:%S", time.localtime(seen)) if seen else "never",
@@ -286,7 +287,7 @@ def _stats(agents: list[dict]) -> dict:
         "devices": len(agents),
         "online": sum(1 for a in agents if a["online"]),
         "tasks": sum(a["done"] for a in agents),
-        "results": sum(a["results"] for a in agents),
+        "results": sum(a["result_count"] for a in agents),
     }
 
 
@@ -299,16 +300,26 @@ def _collect(agents: list[dict], types: set, limit: int = 90):
                 continue
             res = r.get("result") or {}
             out = res.get("output")
-            if isinstance(out, dict) and isinstance(out.get("rows"), list):
-                for row in out["rows"][:limit]:
-                    cells = row if isinstance(row, list) else [row]
+            if isinstance(out, dict):
+                if isinstance(out.get("rows"), list):
+                    for row in out["rows"][:limit]:
+                        cells = row if isinstance(row, list) else [row]
+                        rows.append([a["id"], r.get("type", ""),
+                                     " | ".join(str(c)[:48] for c in cells[:5])])
+                elif isinstance(out.get("items"), list):
+                    for item in out["items"][:limit]:
+                        rows.append([a["id"], r.get("type", ""), str(item)[:120]])
+                elif any(k in out for k in ("jpeg_b64", "m4a_b64", "data_b64")):
+                    label = out.get("format") or "binary"
                     rows.append([a["id"], r.get("type", ""),
-                                 " | ".join(str(c)[:48] for c in cells[:5])])
+                                 f"{label}: {out.get('bytes', '?')} bytes"])
+                else:
+                    rows.append([a["id"], r.get("type", ""), str(out)[:120]])
             elif isinstance(out, list):
                 for item in out[:limit]:
                     rows.append([a["id"], r.get("type", ""), str(item)[:100]])
             elif out is not None:
-                rows.append([a["id"], r.get("type", ""), str(out)[:100]])
+                rows.append([a["id"], r.get("type", ""), str(out)[:120]])
     return ["Device", "Task", "Data"], rows[-limit:]
 
 

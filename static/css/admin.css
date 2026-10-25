@@ -239,3 +239,45 @@ table.hz tr:hover td { background: rgba(var(--hz-glow), .05); }
 .leaflet-control-zoom a { background: rgba(5,0,0,.85) !important; color: var(--bh-blood) !important;
   border-bottom: 1px solid rgba(122,0,18,.5) !important; }
 .leaflet-control-zoom a:hover { background: rgba(60,0,8,.95) !important; color: #fff !important; }
+
+/* ---- iPhone 18 Pro Max exact hardware (163.4 x 78.0 mm, 6.9in 2868x1320) ---- */
+:root { --hz-phone-w: 320px; }
+.phone {
+  /* exact 163.4:78.0 ratio -> height = width * 2.0949 */
+  height: calc(var(--hz-phone-w) * 2.0949);
+  background: linear-gradient(145deg, #1b1f26 0%, #05070a 62%, #0b0e13 100%);
+  border-radius: calc(var(--hz-phone-w) * 0.16);
+  padding: calc(var(--hz-phone-w) * 0.030);
+}
+.phone__screen {
+  /* 6.9in 2868x1320 OLED, rounded corners; streamed image keeps its own ratio */
+  border-radius: calc(var(--hz-phone-w) * 0.115);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+.phone__island {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 calc(var(--hz-phone-w) * 0.018);
+}
+.phone__cam {
+  width: calc(var(--hz-phone-w) * 0.032); height: calc(var(--hz-phone-w) * 0.032);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #3b4a63 0%, #10141c 55%, #000 100%);
+  box-shadow: inset 0 0 2px rgba(120,160,255,.55), 0 0 4px rgba(0,0,0,.9);
+}
+.phone__sensor {
+  width: calc(var(--hz-phone-w) * 0.020); height: calc(var(--hz-phone-w) * 0.020);
+  border-radius: 50%; background: #161b23; box-shadow: inset 0 0 2px rgba(255,255,255,.12);
+}
+.phone__led {
+  position: absolute; top: calc(var(--hz-phone-w) * 0.047); left: calc(var(--hz-phone-w) * 0.062);
+  width: calc(var(--hz-phone-w) * 0.016); height: calc(var(--hz-phone-w) * 0.016);
+  border-radius: 50%; background: #57c8ff; box-shadow: 0 0 8px 2px rgba(87,200,255,.75);
+  z-index: 4;
+}
+/* left rail: Action button, volume up, volume down (Apple layout) */
+.phone__btn--action { left: -3px; top: 12%; width: 4px; height: 6%; }
+.phone__btn--volup { left: -3px; top: 19%; width: 4px; height: 9%; }
+.phone__btn--voldown { left: -3px; top: 27%; width: 4px; height: 9%; }
+/* right rail: Side button + Camera Control */
+.phone__btn--power { right: -3px; top: 21%; width: 4px; height: 12%; }
+.phone__btn--camctl { right: -3px; top: 33%; width: 4px; height: 7%; }
