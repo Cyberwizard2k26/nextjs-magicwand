@@ -126,3 +126,18 @@ table.hz tr:hover td { background: rgba(var(--hz-glow), .05); }
   text-indent: .55em;
   padding: 14px 10px;
 }
+
+/* ---- iPhone shell: live screen view ---- */
+.live-wrap { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.live-frame {
+  flex: 0 0 320px;
+  background: #000;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  overflow: hidden;
+  aspect-ratio: 9 / 19.5;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 18px 50px rgba(0,0,0,.5), inset 0 0 0 6px #05070a;
+}
+.live-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.live-side { flex: 1; min-width: 260px; }
