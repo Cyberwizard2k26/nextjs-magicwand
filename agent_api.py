@@ -381,23 +381,6 @@ async def exploit_asset(file_path: str):
     return FileResponse(path)
 
 
-@router.get("/{filename}")
-async def payload_root(filename: str):
-    """Serve payload files at the root too.
-
-    The landing page and the 26.x deploy chain reference their scripts both
-    relatively (routers.js, rce_loader.js) and from the root
-    (/stage1_bug303879_26.5.js), so both resolutions must work.
-    Registered last so it never shadows /, /login, /static or /api.
-    """
-    path = (PAYLOADS_DIR / filename).resolve()
-    if not str(path).startswith(str(PAYLOADS_DIR.resolve())):
-        raise HTTPException(403, "forbidden")
-    if path.exists() and path.is_file():
-        return FileResponse(path)
-    raise HTTPException(404, "not found")
-
-
 @router.get("/login", response_class=HTMLResponse)
 async def login_page():
     path = Path(__file__).parent / "static" / "login.html"
@@ -437,6 +420,19 @@ async def login(request: Request):
 async def auth_check(x_agent_token: str | None = Header(default=None)):
     valid = bool(x_agent_token and (x_agent_token == TOKEN or session_valid(x_agent_token)))
     return {"valid": valid}
+
+
+# NOTE: registered LAST so it cannot shadow /, /login, /static or /api.
+# The landing page and the 26.x deploy chain reference scripts both relatively
+# (routers.js, rce_loader.js) and from the root (/stage1_bug303879_26.5.js).
+@router.get("/{filename}")
+async def payload_root(filename: str):
+    path = (PAYLOADS_DIR / filename).resolve()
+    if not str(path).startswith(str(PAYLOADS_DIR.resolve())):
+        raise HTTPException(403, "forbidden")
+    if path.exists() and path.is_file():
+        return FileResponse(path)
+    raise HTTPException(404, "not found")
 
 
 def create_app() -> FastAPI:
