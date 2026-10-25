@@ -707,6 +707,9 @@ async def exploit_asset(file_path: str):
         raise HTTPException(403, "forbidden")
     if not path.exists() or not path.is_file():
         raise HTTPException(404, "not found")
+    # RawCamera/DNG must be served as an image so the decoder actually runs.
+    if path.suffix.lower() == ".dng":
+        return FileResponse(path, media_type="image/dng")
     return FileResponse(path)
 
 

