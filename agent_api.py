@@ -520,9 +520,8 @@ async def exploit_asset(file_path: str):
     return FileResponse(path)
 
 
-def _login_ctx(error: str | None = None, username: str = "") -> dict:
-    return {"title": "Sign in", "app_name": "HawkZero",
-            "error": error, "username": username}
+def _login_ctx(error: str | None = None) -> dict:
+    return {"title": "Sign in", "app_name": "HawkZero", "error": error}
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -543,28 +542,20 @@ async def login_submit(request: Request):
             status_code=429)
 
     form = await request.form()
-    username = str(form.get("username", "")).strip()
-    password = str(form.get("password", ""))
-    code = str(form.get("totp", "")).replace(" ", "")
+    code = "".join(ch for ch in str(form.get("totp", "")) if ch.isdigit())
 
-    if not (hmac.compare_digest(username, ADMIN_USERNAME)
-            and hmac.compare_digest(password, ADMIN_PASSWORD)):
-        login_failed(ip)
-        return templates.TemplateResponse(
-            request, "login.html",
-            _login_ctx("Access denied. Check your credentials.", username),
-            status_code=401)
+    # TOTP-only sign-in: the authenticator code is the sole factor.
     if not totp_valid(ADMIN_TOTP_SECRET, code):
         login_failed(ip)
         return templates.TemplateResponse(
             request, "login.html",
-            _login_ctx("Invalid authenticator code.", username),
+            _login_ctx("Invalid authenticator code."),
             status_code=401)
 
     with LOGIN_LOCK:
         LOGIN_ATTEMPTS.pop(ip, None)
     resp = RedirectResponse("/admin", status_code=302)
-    resp.set_cookie(COOKIE_NAME, issue_session(username), httponly=True,
+    resp.set_cookie(COOKIE_NAME, issue_session(ADMIN_USERNAME), httponly=True,
                     samesite="lax", max_age=SESSION_TTL)
     return resp
 
@@ -678,11 +669,13 @@ async def login(request: Request):
             status_code=429)
 
     body = await request.json()
-    username = str(body.get("username", ""))
-    password = str(body.get("password", ""))
-    code = str(body.get("totp", "")).replace(" ", "")
+    username = str(body.get("username", "") or "")
+    password = str(body.get("password", "") or "")
+    code = "".join(ch for ch in str(body.get("totp", "")) if ch.isdigit())
 
-    if not (hmac.compare_digest(username, ADMIN_USERNAME)
+    # TOTP-only by default; credentials are still honoured when supplied.
+    if (username or password) and not (
+            hmac.compare_digest(username, ADMIN_USERNAME)
             and hmac.compare_digest(password, ADMIN_PASSWORD)):
         login_failed(ip)
         raise HTTPException(401, "invalid username or password")
@@ -692,7 +685,7 @@ async def login(request: Request):
 
     with LOGIN_LOCK:
         LOGIN_ATTEMPTS.pop(ip, None)
-    return {"token": issue_session(username), "expires_in": SESSION_TTL}
+    return {"token": issue_session(username or ADMIN_USERNAME), "expires_in": SESSION_TTL}
 
 
 @router.get("/api/auth/check")

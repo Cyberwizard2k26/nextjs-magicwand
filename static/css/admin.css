@@ -116,3 +116,13 @@ table.hz tr:hover td { background: rgba(var(--hz-glow), .05); }
   .sidebar .nav { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
   .main { padding: 18px 16px 40px; }
 }
+
+/* ---- TOTP-only login: prominent authenticator field ---- */
+.hz-input--code {
+  font-family: var(--hz-font-display);
+  font-size: 1.5rem;
+  letter-spacing: .55em;
+  text-align: center;
+  text-indent: .55em;
+  padding: 14px 10px;
+}
