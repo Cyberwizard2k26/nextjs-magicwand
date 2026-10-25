@@ -431,6 +431,38 @@ def _actions_for(slug: str) -> list[dict]:
             for label, ttype, args in SECTION_ACTIONS.get(slug, [])]
 
 
+CHAIN_LOG = DATA_DIR / "chain_outcomes.json"
+CHAIN_LOCK = threading.Lock()
+
+
+def _load_chain_outcomes() -> list:
+    try:
+        return json.loads(CHAIN_LOG.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _append_chain_outcome(record: dict) -> None:
+    with CHAIN_LOCK:
+        items = _load_chain_outcomes()
+        items.append(record)
+        CHAIN_LOG.write_text(json.dumps(items[-200:]), encoding="utf-8")
+
+
+def _chain_outcome_rows(limit: int = 20) -> list[dict]:
+    rows = []
+    for o in _load_chain_outcomes()[-limit:]:
+        body = o.get("body") or {}
+        rows.append({
+            "time_h": time.strftime("%m-%d %H:%M:%S", time.localtime(o.get("ts", 0))),
+            "ua_short": (o.get("ua") or "")[:80],
+            "chain": str(body.get("chain", body.get("name", "")))[:28],
+            "stage": str(body.get("stage", ""))[:28],
+            "result": str(body.get("result", body.get("status", "")))[:48],
+        })
+    return rows
+
+
 def _queue_task(agent_id: str, task_type: str, args: dict) -> str:
     agent = store.get(agent_id)
     task = {"id": secrets.token_hex(8), "type": task_type, "args": args,
@@ -576,6 +608,29 @@ async def results(agent_id: str, x_agent_token: str | None = Header(default=None
 async def root(request: Request):
     """Login gate: the panel is only reachable once authenticated."""
     return RedirectResponse("/admin" if _user_from_request(request) else "/login", status_code=302)
+
+
+@router.post("/api/chain-outcome")
+async def chain_outcome(request: Request):
+    """Outcome beacon fired by the delivery page (no auth: it is browser-side)."""
+    raw = await request.body()
+    try:
+        body = json.loads(raw.decode("utf-8", "replace")) if raw else {}
+    except Exception:  # noqa: BLE001
+        body = {"raw": raw.decode("utf-8", "replace")[:400]}
+    _append_chain_outcome({
+        "ts": time.time(),
+        "ua": request.headers.get("user-agent", "")[:220],
+        "ip": request.client.host if request.client else "",
+        "body": body,
+    })
+    return {"ok": True}
+
+
+@router.get("/api/chain-outcomes")
+async def chain_outcomes(x_agent_token: str | None = Header(default=None)):
+    _auth(x_agent_token)
+    return {"outcomes": _load_chain_outcomes()[-50:]}
 
 
 @router.get("/api/agent/{agent_id}/status")
@@ -758,6 +813,7 @@ async def admin_section(request: Request, slug: str):
         "sections": SECTIONS, "sections_by_slug": BY_SLUG, "active": slug,
         "section": section, "agents": agents, "columns": columns, "rows": rows,
         "actions": _actions_for(slug), "task_types": TASK_TYPES,
+        "chain_outcomes": _chain_outcome_rows(),
         "fixes_json": json.dumps(fixes),
         "map_src": _map_src(agents), "record_count": len(rows),
         "flash": flash, "path": path, "empty": None})
